@@ -3,8 +3,9 @@
 Build Time Analyzer for C++ Projects with time_wrapper.sh
 
 This script parses the compilation_times.log output from time_wrapper.sh
-to calculate compilation times for shared objects (.so files) based on 
-their constituent object files and linking times.
+to calculate compilation times for shared objects (.so files) and static 
+libraries (.a files) based on their constituent object files and 
+linking/archiving times.
 
 Usage:
     python build_analyzer.py [compilation_times.log] [options]
@@ -38,6 +39,9 @@ class BuildTimeAnalyzer:
             
             # Extract shared object linking: -o libname.so [objects...]
             'link_so': re.compile(r'.*-o\s+(\S+\.so)\s+(.*)'),
+            
+            # Extract static library creation: ar [flags] libname.a [objects...]
+            'ar_static': re.compile(r'^ar\s+\S*\s+(\S+\.a)\s+(.*)'),
             
             # Extract object files from arguments
             'objects_in_args': re.compile(r'(\S+\.o)'),
@@ -104,6 +108,25 @@ class BuildTimeAnalyzer:
                     if objects and self.verbose:
                         print(f"  Objects: {', '.join(sorted(objects))}")
             
+            # Check if this is static library creation with ar
+            elif ar_match := self.patterns['ar_static'].search(command):
+                
+                a_file = ar_match.group(1)
+                ar_args = ar_match.group(2)
+                
+                # Extract object files from ar arguments
+                objects = set(self.patterns['objects_in_args'].findall(ar_args))
+                
+                self.linking_info[a_file] = LinkingInfo(
+                    a_file, time_taken, objects, command
+                )
+                self.so_dependencies[a_file].update(objects)
+                
+                if self.verbose:
+                    print(f"Static lib creation: {a_file} with {len(objects)} objects -> {time_taken:.3f}s")
+                    if objects and self.verbose:
+                        print(f"  Objects: {', '.join(sorted(objects))}")
+            
             # Check if this is executable linking (for completeness)
             elif so_match := self.patterns['link_so'].search(command):
                 # This might be an executable, not a shared object
@@ -114,7 +137,7 @@ class BuildTimeAnalyzer:
         return True
     
     def calculate_so_times(self):
-        """Calculate total compilation time for each shared object."""
+        """Calculate total compilation time for each shared object/static library."""
         so_times = {}
         
         for so_file, link_info in self.linking_info.items():
@@ -124,7 +147,7 @@ class BuildTimeAnalyzer:
             missing_objects = []
             object_details = []
             
-            # Sum up compilation times for all object files in this .so
+            # Sum up compilation times for all object files in this library
             for obj_file in objects:
                 if obj_file in self.object_times:
                     obj_info = self.object_times[obj_file]
@@ -141,10 +164,14 @@ class BuildTimeAnalyzer:
             link_time = link_info.time
             total_time = total_compile_time + link_time
             
+            # Determine library type
+            lib_type = 'static' if so_file.endswith('.a') else 'shared'
+            
             so_times[so_file] = {
                 'total_time': total_time,
                 'compile_time': total_compile_time,
                 'link_time': link_time,
+                'library_type': lib_type,
                 'object_count': len(objects),
                 'found_objects': found_objects,
                 'missing_objects': missing_objects,
@@ -163,9 +190,9 @@ class BuildTimeAnalyzer:
         return sorted_objects[:top_n]
     
     def print_report(self, so_times, sort_by='total_time', top_n=None):
-        """Print a formatted report of shared object compilation times."""
+        """Print a formatted report of library compilation times."""
         if not so_times:
-            print("No shared object timing data found.")
+            print("No library timing data found.")
             return
         
         # Sort by specified metric
@@ -176,21 +203,23 @@ class BuildTimeAnalyzer:
         if top_n:
             sorted_sos = sorted_sos[:top_n]
         
-        print(f"\n{'='*90}")
+        print(f"\n{'='*95}")
         print(f"BUILD TIME ANALYSIS REPORT (sorted by {sort_by})")
-        print(f"{'='*90}")
+        print(f"{'='*95}")
         
-        print(f"{'Shared Object':<35} {'Total':<8} {'Compile':<8} {'Link':<8} {'Objects':<8} {'Avg/Obj':<8} {'Missing':<7}")
-        print(f"{'-'*90}")
+        print(f"{'Library':<35} {'Type':<6} {'Total':<8} {'Compile':<8} {'Link/Arch':<9} {'Objects':<8} {'Avg/Obj':<8} {'Missing':<7}")
+        print(f"{'-'*95}")
         
         for so_file, times in sorted_sos:
             so_name = Path(so_file).name[:34]  # Truncate long names
+            lib_type = times['library_type'][:6]
             missing_count = len(times['missing_objects'])
             
             print(f"{so_name:<35} "
+                  f"{lib_type:<6} "
                   f"{times['total_time']:>7.1f}s "
                   f"{times['compile_time']:>7.1f}s "
-                  f"{times['link_time']:>7.1f}s "
+                  f"{times['link_time']:>8.1f}s "
                   f"{times['found_objects']:>3}/{times['object_count']:<3} "
                   f"{times['avg_time_per_object']:>7.1f}s "
                   f"{missing_count:>6}")
@@ -206,14 +235,18 @@ class BuildTimeAnalyzer:
         total_objects = sum(t['object_count'] for t in so_times.values())
         found_objects = sum(t['found_objects'] for t in so_times.values())
         
-        print(f"\n{'='*90}")
+        # Count by type
+        so_count = sum(1 for t in so_times.values() if t['library_type'] == 'shared')
+        a_count = sum(1 for t in so_times.values() if t['library_type'] == 'static')
+        
+        print(f"\n{'='*95}")
         print(f"SUMMARY:")
         print(f"  Total compilation time: {total_compile:.1f}s ({total_compile/60:.1f} min)")
-        print(f"  Total linking time: {total_link:.1f}s")
+        print(f"  Total linking/archiving time: {total_link:.1f}s")
         print(f"  Total build time: {total_compile + total_link:.1f}s ({(total_compile + total_link)/60:.1f} min)")
         print(f"  Total objects: {total_objects} (found timing for {found_objects})")
         print(f"  Average time per object: {total_compile/found_objects:.1f}s" if found_objects > 0 else "")
-        print(f"  Shared objects analyzed: {len(so_times)}")
+        print(f"  Libraries analyzed: {len(so_times)} ({so_count} shared, {a_count} static)")
         
         # Show slowest individual object files
         slowest_objects = self.find_slowest_objects(5)
@@ -225,17 +258,21 @@ class BuildTimeAnalyzer:
                 print(f"    {obj_name:<25} {src_name:<25} {info.time:>6.1f}s")
     
     def print_detailed_so_report(self, so_file, so_times):
-        """Print detailed breakdown for a specific shared object."""
+        """Print detailed breakdown for a specific library."""
         if so_file not in so_times:
             print(f"No data found for {so_file}")
             return
         
         times = so_times[so_file]
+        lib_type = times['library_type']
+        action_label = "Linking" if lib_type == 'shared' else "Archiving"
+        
         print(f"\nDETAILED REPORT FOR: {so_file}")
         print(f"{'='*80}")
+        print(f"Library type: {lib_type}")
         print(f"Total time: {times['total_time']:.1f}s")
         print(f"Compilation time: {times['compile_time']:.1f}s")
-        print(f"Linking time: {times['link_time']:.1f}s")
+        print(f"{action_label} time: {times['link_time']:.1f}s")
         print(f"Objects: {times['found_objects']}/{times['object_count']}")
         
         if times['object_details']:
@@ -276,7 +313,7 @@ class BuildTimeAnalyzer:
         print(f"Data exported to {filename}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Analyze C++ build times from time_wrapper.sh log')
+    parser = argparse.ArgumentParser(description='Analyze C++ build times for libraries (.so/.a) from time_wrapper.sh log')
     parser.add_argument('input_file', nargs='?', default='compilation_times.log',
                        help='Timing log file to analyze (default: compilation_times.log)')
     parser.add_argument('-v', '--verbose', action='store_true', 
@@ -285,7 +322,7 @@ def main():
                        choices=['total_time', 'compile_time', 'link_time', 'object_count'],
                        default='total_time', help='Sort results by metric')
     parser.add_argument('-n', '--top', type=int, help='Show only top N results')
-    parser.add_argument('-d', '--detail', help='Show detailed breakdown for specific .so file')
+    parser.add_argument('-d', '--detail', help='Show detailed breakdown for specific library (.so/.a)')
     parser.add_argument('-j', '--json', help='Export results to JSON file')
     
     args = parser.parse_args()
