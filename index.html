@@ -1,0 +1,325 @@
+<!-- templates/index.html -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Task Admin UI</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            border-bottom: 2px solid #007acc;
+            padding-bottom: 10px;
+        }
+        .command-form {
+            display: grid;
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        label {
+            font-weight: 600;
+            color: #555;
+        }
+        select, input, textarea {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        input:focus, select:focus {
+            outline: none;
+            border-color: #007acc;
+        }
+        .args-input {
+            font-family: 'Courier New', monospace;
+        }
+        button {
+            background: #007acc;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 4px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        button:hover {
+            background: #005a9e;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .output-section {
+            margin-top: 20px;
+        }
+        .output {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            min-height: 200px;
+            max-height: 600px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        .output.error {
+            border-left: 4px solid #f44336;
+        }
+        .output.success {
+            border-left: 4px solid #4caf50;
+        }
+        .spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #007acc;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            margin-left: 10px;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .status {
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+        }
+        .status.success {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
+        .history {
+            margin-top: 30px;
+            border-top: 1px solid #ddd;
+            padding-top: 20px;
+        }
+        .history-item {
+            background: #f9f9f9;
+            padding: 10px;
+            margin-bottom: 10px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .history-item:hover {
+            background: #f0f0f0;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Task Admin Control Panel</h1>
+        
+        <div class="command-form">
+            <div>
+                <label for="command">Command:</label>
+                <select id="command">
+                    <option value="">-- Select Command --</option>
+                    {% for cmd in commands %}
+                    <option value="{{ cmd }}">{{ cmd }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            
+            <div>
+                <label for="args">Arguments (space-separated or one per line):</label>
+                <textarea id="args" rows="3" class="args-input" 
+                    placeholder="arg1 arg2 arg3&#10;or&#10;arg1&#10;arg2&#10;arg3"></textarea>
+            </div>
+            
+            <div>
+                <button id="executeBtn" onclick="executeCommand()">
+                    Execute Command
+                </button>
+                <button id="clearBtn" onclick="clearOutput()" style="background: #666; margin-left: 10px;">
+                    Clear Output
+                </button>
+            </div>
+        </div>
+        
+        <div class="status" id="status"></div>
+        
+        <div class="output-section">
+            <label>Output:</label>
+            <div id="output" class="output">Ready to execute commands...</div>
+        </div>
+        
+        <div class="history" id="history">
+            <h3>Command History</h3>
+            <div id="historyList"></div>
+        </div>
+    </div>
+
+    <script>
+        let executing = false;
+        let commandHistory = JSON.parse(localStorage.getItem('taskAdminHistory') || '[]');
+
+        // Load history on page load
+        window.onload = function() {
+            renderHistory();
+        };
+
+        async function executeCommand() {
+            if (executing) return;
+            
+            const command = document.getElementById('command').value;
+            const argsText = document.getElementById('args').value;
+            
+            if (!command) {
+                showStatus('Please select a command', 'error');
+                return;
+            }
+            
+            // Parse arguments (handle both space-separated and line-separated)
+            const args = argsText
+                .split(/[\n\s]+/)
+                .filter(arg => arg.trim() !== '');
+            
+            executing = true;
+            const btn = document.getElementById('executeBtn');
+            const output = document.getElementById('output');
+            
+            btn.innerHTML = 'Executing... <div class="spinner"></div>';
+            btn.disabled = true;
+            
+            output.textContent = `Executing: task_admin -c config.xml ${command} ${args.join(' ')}\n\n`;
+            output.className = 'output';
+            
+            try {
+                const response = await fetch('/execute', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ command, args })
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    let outputText = `Command: task_admin -c config.xml ${command} ${args.join(' ')}\n`;
+                    outputText += `Return Code: ${data.returncode}\n`;
+                    outputText += '─'.repeat(60) + '\n\n';
+                    
+                    if (data.stdout) {
+                        outputText += 'STDOUT:\n' + data.stdout + '\n';
+                    }
+                    
+                    if (data.stderr) {
+                        outputText += '\nSTDERR:\n' + data.stderr;
+                    }
+                    
+                    output.textContent = outputText;
+                    output.className = data.success ? 'output success' : 'output error';
+                    
+                    // Save to history
+                    addToHistory(command, args, data.success);
+                    
+                    showStatus(
+                        data.success ? 'Command executed successfully' : 'Command failed', 
+                        data.success ? 'success' : 'error'
+                    );
+                } else {
+                    output.textContent = `Error: ${data.error}`;
+                    output.className = 'output error';
+                    showStatus(data.error, 'error');
+                }
+            } catch (error) {
+                output.textContent = `Network Error: ${error.message}`;
+                output.className = 'output error';
+                showStatus('Failed to execute command', 'error');
+            } finally {
+                btn.innerHTML = 'Execute Command';
+                btn.disabled = false;
+                executing = false;
+            }
+        }
+        
+        function clearOutput() {
+            document.getElementById('output').textContent = 'Ready to execute commands...';
+            document.getElementById('output').className = 'output';
+            document.getElementById('status').style.display = 'none';
+        }
+        
+        function showStatus(message, type) {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+            
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
+        }
+        
+        function addToHistory(command, args, success) {
+            const item = {
+                command,
+                args,
+                success,
+                timestamp: new Date().toISOString()
+            };
+            
+            commandHistory.unshift(item);
+            commandHistory = commandHistory.slice(0, 20); // Keep last 20
+            localStorage.setItem('taskAdminHistory', JSON.stringify(commandHistory));
+            renderHistory();
+        }
+        
+        function renderHistory() {
+            const historyList = document.getElementById('historyList');
+            if (commandHistory.length === 0) {
+                historyList.innerHTML = '<p style="color: #666;">No command history yet</p>';
+                return;
+            }
+            
+            historyList.innerHTML = commandHistory.map((item, index) => `
+                <div class="history-item" onclick="loadFromHistory(${index})">
+                    <div>${item.success ? '✓' : '✗'} <strong>${item.command}</strong> ${item.args.join(' ')}</div>
+                    <div class="timestamp">${new Date(item.timestamp).toLocaleString()}</div>
+                </div>
+            `).join('');
+        }
+        
+        function loadFromHistory(index) {
+            const item = commandHistory[index];
+            document.getElementById('command').value = item.command;
+            document.getElementById('args').value = item.args.join(' ');
+        }
+        
+        // Allow Enter key in args field without submitting
+        document.getElementById('args').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && e.ctrlKey) {
+                e.preventDefault();
+                executeCommand();
+            }
+        });
+    </script>
+</body>
+</html>
