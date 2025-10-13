@@ -2,6 +2,7 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 from functools import wraps
 from ldap3 import Server, Connection, ALL, SUBTREE, Tls
+from werkzeug.middleware.proxy_fix import ProxyFix
 import ssl
 import subprocess
 import os
@@ -14,6 +15,20 @@ app = Flask(__name__)
 # Logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Proxy configuration - IMPORTANT for reverse proxy setups
+app.wsgi_app = ProxyFix(
+    app.wsgi_app,
+    x_for=1,
+    x_proto=1,
+    x_host=1,
+    x_prefix=1
+)
+
+# Application path configuration
+if hasattr(Config, 'APP_BASE_PATH') and Config.APP_BASE_PATH:
+    app.config['APPLICATION_ROOT'] = Config.APP_BASE_PATH
+    logger.info(f"App configured with base path: {Config.APP_BASE_PATH}")
 
 # Session configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(32).hex())
@@ -192,12 +207,18 @@ def write_permission_required(f):
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handle login form"""
+    # Log request details for debugging
+    logger.info(f"Login request - Method: {request.method}, Path: {request.path}, "
+                f"Full URL: {request.url}, Headers: {dict(request.headers)}")
+    
     if request.method == 'GET':
         # Already logged in?
         if 'user' in session:
+            logger.info(f"User already logged in, redirecting to index")
             return redirect(url_for('index'))
         
         next_url = request.args.get('next', url_for('index'))
+        logger.info(f"Showing login page, next_url: {next_url}")
         return render_template('login.html', next_url=next_url)
     
     # POST - process login
@@ -309,6 +330,21 @@ def health():
     """Health check endpoint"""
     return jsonify({'status': 'healthy'})
 
+@app.route('/debug-proxy')
+def debug_proxy():
+    """Debug endpoint to check proxy configuration"""
+    return jsonify({
+        'request_url': request.url,
+        'request_path': request.path,
+        'base_url': request.base_url,
+        'url_root': request.url_root,
+        'script_root': request.script_root,
+        'application_root': app.config.get('APPLICATION_ROOT'),
+        'headers': dict(request.headers),
+        'remote_addr': request.remote_addr,
+        'scheme': request.scheme
+    })
+
 if __name__ == '__main__':
     # Validate configuration
     if not Config.LDAP_SERVICE_PASSWORD:
@@ -316,5 +352,12 @@ if __name__ == '__main__':
     
     if not Config.LDAP_DEFAULT_READ_ROLES and not Config.LDAP_DEFAULT_WRITE_ROLES:
         print("Warning: No LDAP roles configured for access!")
+    
+    print(f"\nStarting Flask app...")
+    print(f"Base path: {app.config.get('APPLICATION_ROOT', '/')}")
+    print(f"Access directly at: http://localhost:8059/login")
+    if hasattr(Config, 'WEB_PROXY_ALIAS'):
+        print(f"Access via proxy at: {Config.WEB_PROXY_ALIAS}{Config.APP_BASE_PATH if hasattr(Config, 'APP_BASE_PATH') else ''}/login")
+    print(f"\nDebug proxy config at: /debug-proxy\n")
     
     app.run(host='0.0.0.0', port=8059, debug=True)
