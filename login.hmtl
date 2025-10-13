@@ -170,7 +170,7 @@
         </div>
         {% endif %}
         
-        <form method="POST" id="loginForm" action="{{ url_for('login') }}">
+        <form method="POST" id="loginForm" action="{{ base_path }}/login">
             <input type="hidden" name="next" value="{{ next_url or '' }}">
             
             <div class="form-group">

@@ -25,10 +25,29 @@ app.wsgi_app = ProxyFix(
     x_prefix=1
 )
 
-# Application path configuration
+# CRITICAL: Set the base path so Flask knows about it
 if hasattr(Config, 'APP_BASE_PATH') and Config.APP_BASE_PATH:
-    app.config['APPLICATION_ROOT'] = Config.APP_BASE_PATH
-    logger.info(f"App configured with base path: {Config.APP_BASE_PATH}")
+    # Strip trailing slash to be consistent
+    base_path = Config.APP_BASE_PATH.rstrip('/')
+    app.config['APPLICATION_ROOT'] = base_path
+    logger.info(f"App configured with base path: {base_path}")
+else:
+    base_path = ''
+    logger.info("App configured at root path")
+
+# Helper function to build URLs with base path
+def build_url(path):
+    """Build URL with base path prefix"""
+    if not path.startswith('/'):
+        path = '/' + path
+    if base_path:
+        return base_path + path
+    return path
+
+# Make base_path available to all templates
+@app.context_processor
+def inject_base_path():
+    return {'base_path': base_path}
 
 # Session configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(32).hex())
@@ -36,6 +55,7 @@ app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
 app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_PATH'] = base_path if base_path else '/'
 
 def get_ldap_server():
     """Create LDAP server with TLS configuration"""
@@ -191,9 +211,9 @@ def login_required(f):
             if request.method == 'POST':
                 return jsonify({'error': 'Authentication required'}), 401
             else:
-                # Use request.path instead of request.url to preserve base path
-                next_path = request.path if request.path != url_for('login') else url_for('index')
-                return redirect(url_for('login', next=next_path, _external=False))
+                # Use build_url to ensure base path is included
+                next_path = request.path if request.path != build_url('/login') else build_url('/')
+                return redirect(build_url('/login') + f'?next={next_path}')
         return f(*args, **kwargs)
     return decorated_function
 
@@ -211,15 +231,15 @@ def login():
     """Handle login form"""
     # Log request details for debugging
     logger.info(f"Login request - Method: {request.method}, Path: {request.path}, "
-                f"Full URL: {request.url}, Headers: {dict(request.headers)}")
+                f"Full URL: {request.url}, Base path: {base_path}")
     
     if request.method == 'GET':
         # Already logged in?
         if 'user' in session:
             logger.info(f"User already logged in, redirecting to index")
-            return redirect(url_for('index'))
+            return redirect(build_url('/'))
         
-        next_url = request.args.get('next', url_for('index'))
+        next_url = request.args.get('next', build_url('/'))
         logger.info(f"Showing login page, next_url: {next_url}")
         return render_template('login.html', next_url=next_url)
     
@@ -272,17 +292,17 @@ def login():
     
     # Redirect to next URL or home
     # Get next_url from form data, not query string (since this is POST)
-    next_url = request.form.get('next', '')
+    next_url = request.form.get('next', '').strip()
     
     # Validate next_url to prevent open redirects
-    if next_url and next_url.startswith('/'):
+    if next_url and (next_url.startswith('/') or next_url.startswith(base_path)):
         # Internal redirect - use as-is
         logger.info(f"Redirecting to next_url: {next_url}")
         return redirect(next_url)
     else:
         # Default to index
-        logger.info(f"Redirecting to index")
-        return redirect(url_for('index', _external=False))
+        logger.info(f"Redirecting to index: {build_url('/')}")
+        return redirect(build_url('/'))
 
 @app.route('/logout')
 def logout():
@@ -290,14 +310,14 @@ def logout():
     username = session.get('user', {}).get('username', 'unknown')
     session.clear()
     logger.info(f"User {username} logged out")
-    return redirect(url_for('login', _external=False))
+    return redirect(build_url('/login'))
 
 @app.route('/')
 def index():
     """Root/main application page"""
     # If not logged in, redirect to login
     if 'user' not in session:
-        return redirect(url_for('login', _external=False))
+        return redirect(build_url('/login'))
     
     # User is logged in, show the main page
     user = session.get('user', {})
@@ -352,15 +372,23 @@ def health():
 def debug_proxy():
     """Debug endpoint to check proxy configuration"""
     return jsonify({
+        'configured_base_path': base_path,
         'request_url': request.url,
         'request_path': request.path,
         'base_url': request.base_url,
         'url_root': request.url_root,
         'script_root': request.script_root,
         'application_root': app.config.get('APPLICATION_ROOT'),
+        'session_cookie_path': app.config.get('SESSION_COOKIE_PATH'),
         'headers': dict(request.headers),
         'remote_addr': request.remote_addr,
-        'scheme': request.scheme
+        'scheme': request.scheme,
+        'test_urls': {
+            'login': build_url('/login'),
+            'index': build_url('/'),
+            'logout': build_url('/logout'),
+            'execute': build_url('/execute')
+        }
     })
 
 if __name__ == '__main__':
