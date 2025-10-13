@@ -221,7 +221,7 @@
                 </div>
             </div>
         </div>
-        <a href="/logout" class="logout-btn">Logout</a>
+        <a href="{{ url_for('logout') }}" class="logout-btn">Logout</a>
     </div>
 
     <div class="container">
@@ -301,7 +301,7 @@
             output.className = 'output';
             
             try {
-                const response = await fetch('/execute', {
+                const response = await fetch('{{ url_for("execute") }}', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -310,7 +310,7 @@
                 });
                 
                 if (response.status === 401) {
-                    window.location.href = '/login?next=' + encodeURIComponent(window.location.pathname);
+                    window.location.href = '{{ url_for("login") }}?next=' + encodeURIComponent(window.location.pathname);
                     return;
                 }
                 

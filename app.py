@@ -191,7 +191,9 @@ def login_required(f):
             if request.method == 'POST':
                 return jsonify({'error': 'Authentication required'}), 401
             else:
-                return redirect(url_for('login', next=request.url))
+                # Use request.path instead of request.url to preserve base path
+                next_path = request.path if request.path != url_for('login') else url_for('index')
+                return redirect(url_for('login', next=next_path, _external=False))
         return f(*args, **kwargs)
     return decorated_function
 
@@ -269,31 +271,47 @@ def login():
     logger.info(f"User {username} logged in successfully with permissions: {permissions}")
     
     # Redirect to next URL or home
-    next_url = request.args.get('next', url_for('index'))
-    return redirect(next_url)
+    # Get next_url from form data, not query string (since this is POST)
+    next_url = request.form.get('next', '')
+    
+    # Validate next_url to prevent open redirects
+    if next_url and next_url.startswith('/'):
+        # Internal redirect - use as-is
+        logger.info(f"Redirecting to next_url: {next_url}")
+        return redirect(next_url)
+    else:
+        # Default to index
+        logger.info(f"Redirecting to index")
+        return redirect(url_for('index', _external=False))
 
 @app.route('/logout')
-@login_required
 def logout():
     """Handle logout"""
     username = session.get('user', {}).get('username', 'unknown')
     session.clear()
     logger.info(f"User {username} logged out")
-    return redirect(url_for('login'))
+    return redirect(url_for('login', _external=False))
 
 @app.route('/')
-@login_required
 def index():
-    """Main application page"""
+    """Root/main application page"""
+    # If not logged in, redirect to login
+    if 'user' not in session:
+        return redirect(url_for('login', _external=False))
+    
+    # User is logged in, show the main page
     user = session.get('user', {})
     return render_template('index.html', 
                          commands=user.get('allowed_commands', []),
                          user=user)
 
 @app.route('/execute', methods=['POST'])
-@login_required
 def execute():
     """Execute command"""
+    # Check authentication
+    if 'user' not in session:
+        return jsonify({'error': 'Authentication required'}), 401
+    
     data = request.json
     command = data.get('command')
     args = data.get('args', [])

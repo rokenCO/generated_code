@@ -170,8 +170,8 @@
         </div>
         {% endif %}
         
-        <form method="POST" id="loginForm">
-            <input type="hidden" name="next" value="{{ next_url }}">
+        <form method="POST" id="loginForm" action="{{ url_for('login') }}">
+            <input type="hidden" name="next" value="{{ next_url or '' }}">
             
             <div class="form-group">
                 <label for="username">Username</label>
