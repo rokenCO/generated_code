@@ -59,93 +59,183 @@ def test_ldap_connection():
         print(f"   ❌ Connection failed: {str(e)}")
         return False
     
-    # Test search capability
+    # Test search capability with indexed attribute
     print("\n[3] Testing Search Capability...")
-    try:
-        # Search for all users (limit to 5 for testing)
-        conn.search(
-            search_base='dc=root',
-            search_filter='(objectClass=person)',
-            search_scope=SUBTREE,
-            attributes=['cn', 'uid', 'mail', 'memberOf'],
-            size_limit=5
-        )
-        
-        print(f"   ✅ Search successful! Found {len(conn.entries)} users (max 5)")
-        
-        if conn.entries:
-            print("\n   Sample users:")
-            for entry in conn.entries[:3]:
-                uid = entry.uid.value if hasattr(entry, 'uid') else 'N/A'
-                cn = entry.cn.value if hasattr(entry, 'cn') else 'N/A'
-                print(f"      - {uid} ({cn})")
-        else:
-            print("   ⚠️  Warning: No users found. Check search base 'dc=root'")
-            
-    except Exception as e:
-        print(f"   ❌ Search failed: {str(e)}")
-        conn.unbind()
-        return False
+    print("   Trying different search strategies...")
     
-    # Test specific user lookup
-    print("\n[4] Testing User Lookup...")
-    test_username = input("   Enter a username to test (or press Enter to skip): ").strip()
+    search_successful = False
+    search_strategies = [
+        {
+            'name': 'Search by uid (indexed)',
+            'filter': '(uid=*)',
+            'attributes': ['uid', 'cn', 'mail'],
+            'size_limit': 5
+        },
+        {
+            'name': 'Search by cn (indexed)',
+            'filter': '(cn=*)',
+            'attributes': ['uid', 'cn', 'mail'],
+            'size_limit': 5
+        },
+        {
+            'name': 'Search by mail (indexed)',
+            'filter': '(mail=*)',
+            'attributes': ['uid', 'cn', 'mail'],
+            'size_limit': 5
+        },
+        {
+            'name': 'Search organizational units',
+            'filter': '(objectClass=organizationalUnit)',
+            'attributes': ['ou'],
+            'size_limit': 10
+        }
+    ]
     
-    if test_username:
+    for strategy in search_strategies:
         try:
-            user_filter = f'(uid={test_username})'
+            print(f"\n   Trying: {strategy['name']}...")
             conn.search(
                 search_base='dc=root',
-                search_filter=user_filter,
+                search_filter=strategy['filter'],
                 search_scope=SUBTREE,
-                attributes=['cn', 'mail', 'memberOf', 'employeeType', 'uid']
+                attributes=strategy['attributes'],
+                size_limit=strategy['size_limit']
             )
             
             if conn.entries:
-                print(f"   ✅ User '{test_username}' found!")
-                user = conn.entries[0]
+                print(f"   ✅ {strategy['name']} successful! Found {len(conn.entries)} entries")
                 
-                print("\n   User Details:")
-                print(f"      DN: {user.entry_dn}")
-                print(f"      CN: {user.cn.value if hasattr(user, 'cn') else 'N/A'}")
-                print(f"      Email: {user.mail.value if hasattr(user, 'mail') else 'N/A'}")
-                
-                if hasattr(user, 'memberOf'):
-                    print(f"      Groups:")
-                    for group_dn in user.memberOf:
-                        group_cn = str(group_dn).split(',')[0].replace('cn=', '').replace('CN=', '')
-                        print(f"         - {group_cn}")
-                    
-                    # Check permissions
-                    roles = [str(g).split(',')[0].replace('cn=', '').replace('CN=', '') 
-                             for g in user.memberOf]
-                    
-                    can_read = any(role in Config.LDAP_DEFAULT_READ_ROLES for role in roles)
-                    can_write = any(role in Config.LDAP_DEFAULT_WRITE_ROLES for role in roles)
-                    
-                    print("\n   Permission Check:")
-                    print(f"      Read permission: {'✅ Yes' if can_read else '❌ No'}")
-                    print(f"      Write permission: {'✅ Yes' if can_write else '❌ No'}")
-                    
-                    if not can_read and not can_write:
-                        print(f"      ⚠️  User has no permissions (not in any authorized groups)")
-                        print(f"      Read roles: {Config.LDAP_DEFAULT_READ_ROLES}")
-                        print(f"      Write roles: {Config.LDAP_DEFAULT_WRITE_ROLES}")
-                else:
-                    print("      Groups: None (no memberOf attribute)")
-                    print("      ⚠️  Warning: User has no group memberships")
-                    
+                if 'uid' in strategy['attributes']:
+                    print("\n   Sample entries:")
+                    for entry in conn.entries[:3]:
+                        uid = entry.uid.value if hasattr(entry, 'uid') else 'N/A'
+                        cn = entry.cn.value if hasattr(entry, 'cn') else 'N/A'
+                        print(f"      - uid: {uid}, cn: {cn}")
+                    search_successful = True
+                    break
+                elif 'ou' in strategy['attributes']:
+                    print("   Organizational units found:")
+                    for entry in conn.entries[:5]:
+                        ou = entry.ou.value if hasattr(entry, 'ou') else 'N/A'
+                        print(f"      - ou: {ou}")
             else:
-                print(f"   ❌ User '{test_username}' not found")
-                print(f"   Search filter used: {user_filter}")
+                print(f"   ⚠️  No entries found with this search")
                 
         except Exception as e:
-            print(f"   ❌ User lookup failed: {str(e)}")
+            print(f"   ❌ {strategy['name']} failed: {str(e)}")
+            continue
+    
+    if not search_successful:
+        print("\n   ⚠️  Warning: Could not find users with standard searches")
+        print("   This might be normal - let's try a specific user lookup")
+    
+    # Test specific user lookup
+    print("\n[4] Testing Specific User Lookup...")
+    test_username = input("   Enter a username to test (or press Enter to skip): ").strip()
+    
+    if test_username:
+        # Try multiple search patterns
+        search_patterns = [
+            f'(uid={test_username})',
+            f'(sAMAccountName={test_username})',
+            f'(cn={test_username})',
+            f'(userPrincipalName={test_username}@*)'
+        ]
+        
+        user_found = False
+        for pattern in search_patterns:
+            try:
+                print(f"\n   Trying search filter: {pattern}")
+                conn.search(
+                    search_base='dc=root',
+                    search_filter=pattern,
+                    search_scope=SUBTREE,
+                    attributes=['cn', 'mail', 'memberOf', 'employeeType', 'uid', 'dn']
+                )
+                
+                if conn.entries:
+                    print(f"   ✅ User '{test_username}' found!")
+                    user = conn.entries[0]
+                    user_found = True
+                    
+                    print("\n   User Details:")
+                    print(f"      DN: {user.entry_dn}")
+                    
+                    # Display all available attributes
+                    for attr in ['cn', 'uid', 'mail', 'employeeType']:
+                        if hasattr(user, attr):
+                            print(f"      {attr}: {getattr(user, attr).value}")
+                    
+                    if hasattr(user, 'memberOf'):
+                        print(f"      Groups:")
+                        roles = []
+                        for group_dn in user.memberOf:
+                            group_cn = str(group_dn).split(',')[0].replace('cn=', '').replace('CN=', '')
+                            roles.append(group_cn)
+                            print(f"         - {group_cn}")
+                        
+                        # Check permissions
+                        can_read = any(role in Config.LDAP_DEFAULT_READ_ROLES for role in roles)
+                        can_write = any(role in Config.LDAP_DEFAULT_WRITE_ROLES for role in roles)
+                        
+                        print("\n   Permission Check:")
+                        print(f"      Read permission: {'✅ Yes' if can_read else '❌ No'}")
+                        print(f"      Write permission: {'✅ Yes' if can_write else '❌ No'}")
+                        
+                        if not can_read and not can_write:
+                            print(f"      ⚠️  User has no permissions")
+                            print(f"      Configured read roles: {Config.LDAP_DEFAULT_READ_ROLES}")
+                            print(f"      Configured write roles: {Config.LDAP_DEFAULT_WRITE_ROLES}")
+                    else:
+                        print("      Groups: None (no memberOf attribute)")
+                        print("      ⚠️  Warning: User has no group memberships")
+                    
+                    break
+                    
+            except Exception as e:
+                print(f"   ❌ Search with {pattern} failed: {str(e)}")
+                continue
+        
+        if not user_found:
+            print(f"\n   ❌ User '{test_username}' not found with any search pattern")
+            print("   Possible issues:")
+            print("   - Username might be incorrect")
+            print("   - User might be in a different OU not under dc=root")
+            print("   - LDAP schema might use different attribute names")
+    
+    # Test authentication simulation
+    print("\n[5] Testing Authentication Pattern...")
+    print("   This simulates how the app will authenticate users")
+    
+    if test_username and user_found:
+        user_dn = conn.entries[0].entry_dn
+        print(f"   Found user DN: {user_dn}")
+        
+        test_password = input("   Enter password to test bind (or Enter to skip): ").strip()
+        if test_password:
+            try:
+                # Create new connection with user credentials
+                test_conn = Connection(
+                    server,
+                    user=user_dn,
+                    password=test_password,
+                    raise_exceptions=True
+                )
+                
+                if test_conn.bind():
+                    print("   ✅ User authentication successful!")
+                    print("   The application will be able to authenticate this user")
+                    test_conn.unbind()
+                else:
+                    print("   ❌ Authentication failed - incorrect password")
+                    
+            except Exception as e:
+                print(f"   ❌ Authentication test failed: {str(e)}")
     
     # Cleanup
     conn.unbind()
     
-    print("\n[5] Testing Authorization Configuration...")
+    print("\n[6] Testing Authorization Configuration...")
     print(f"   Read roles: {Config.LDAP_DEFAULT_READ_ROLES}")
     print(f"   Write roles: {Config.LDAP_DEFAULT_WRITE_ROLES}")
     
@@ -154,8 +244,17 @@ def test_ldap_connection():
         return False
     
     print("\n" + "=" * 60)
-    print("✅ LDAP CONNECTION TEST COMPLETED SUCCESSFULLY")
+    print("✅ LDAP CONNECTION TEST COMPLETED")
     print("=" * 60)
+    print("\nKey Findings:")
+    print(f"  - LDAP connection: ✅ Working")
+    print(f"  - Search capability: {'✅ Working' if search_successful or user_found else '⚠️  Limited (but may be sufficient)'}")
+    print(f"  - User lookup: {'✅ Tested' if user_found else '⚠️  Not tested'}")
+    print("\nThe application should work if:")
+    print("  1. Users provide valid usernames")
+    print("  2. The service account can search for uid={username}")
+    print("  3. Users are in configured role groups")
+    
     return True
 
 def main():
