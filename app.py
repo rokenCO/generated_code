@@ -277,12 +277,19 @@ def login():
                              error='Access denied: No permissions assigned',
                              username=username)
     
+    # Filter roles to only show relevant ones (that grant permissions)
+    relevant_roles = [
+        role for role in user_data['roles'] 
+        if role in Config.LDAP_DEFAULT_READ_ROLES or role in Config.LDAP_DEFAULT_WRITE_ROLES
+    ]
+    
     # Create session
     session['user'] = {
         'username': user_data['username'],
         'email': user_data['email'],
         'full_name': user_data['full_name'],
-        'roles': user_data['roles'],
+        'roles': user_data['roles'],  # All roles for backend logic
+        'relevant_roles': relevant_roles,  # Only permission-granting roles for display
         'permissions': permissions,
         'allowed_commands': permissions['allowed_commands']
     }

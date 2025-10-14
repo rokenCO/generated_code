@@ -49,6 +49,15 @@
             font-size: 12px;
             color: #666;
         }
+        .user-roles .role-badge {
+            display: inline-block;
+            background: #e0e0e0;
+            color: #333;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            margin: 0 2px;
+        }
         .logout-btn {
             background: #f44336;
             color: white;
@@ -174,9 +183,16 @@
             margin-bottom: 10px;
             border-radius: 4px;
             cursor: pointer;
+            border-left: 3px solid transparent;
         }
         .history-item:hover {
             background: #f0f0f0;
+        }
+        .history-item .username {
+            color: #666;
+            font-size: 12px;
+            margin-left: 10px;
+            font-style: italic;
         }
         .timestamp {
             color: #666;
@@ -217,7 +233,14 @@
                 </div>
                 <div class="user-roles">
                     {{ user.email or user.username }} • 
-                    Roles: {{ user.roles|join(', ') if user.roles else 'None' }}
+                    {% if user.relevant_roles %}
+                        Active roles: 
+                        {% for role in user.relevant_roles %}
+                            <span class="role-badge">{{ role }}</span>
+                        {% endfor %}
+                    {% else %}
+                        No active roles
+                    {% endif %}
                 </div>
             </div>
         </div>
@@ -332,7 +355,7 @@
                     output.textContent = outputText;
                     output.className = data.success ? 'output success' : 'output error';
                     
-                    addToHistory(command, args, data.success);
+                    addToHistory(command, args, data.success, data.executed_by);
                     
                     showStatus(
                         data.success ? 'Command executed successfully' : 'Command failed', 
@@ -371,11 +394,12 @@
             }, 5000);
         }
         
-        function addToHistory(command, args, success) {
+        function addToHistory(command, args, success, username) {
             const item = {
                 command,
                 args,
                 success,
+                username: username || 'Unknown',
                 timestamp: new Date().toISOString()
             };
             
@@ -392,12 +416,20 @@
                 return;
             }
             
-            historyList.innerHTML = commandHistory.map((item, index) => `
-                <div class="history-item" onclick="loadFromHistory(${index})">
-                    <div>${item.success ? '✓' : '✗'} <strong>${item.command}</strong> ${item.args.join(' ')}</div>
-                    <div class="timestamp">${new Date(item.timestamp).toLocaleString()}</div>
-                </div>
-            `).join('');
+            historyList.innerHTML = commandHistory.map((item, index) => {
+                const statusIcon = item.success ? '✓' : '✗';
+                const borderColor = item.success ? '#4caf50' : '#f44336';
+                return `
+                    <div class="history-item" onclick="loadFromHistory(${index})" style="border-left-color: ${borderColor};">
+                        <div>
+                            ${statusIcon} 
+                            <strong>${item.command}</strong> ${item.args.join(' ')}
+                            ${item.username ? `<span class="username">by ${item.username}</span>` : ''}
+                        </div>
+                        <div class="timestamp">${new Date(item.timestamp).toLocaleString()}</div>
+                    </div>
+                `;
+            }).join('');
         }
         
         function loadFromHistory(index) {
