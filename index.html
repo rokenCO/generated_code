@@ -368,9 +368,7 @@
                 return;
             }
             
-            const args = argsText
-                .split(/[\n\s]+/)
-                .filter(arg => arg.trim() !== '');
+            const args = parseArguments(argsText);
             
             executing = true;
             const btn = document.getElementById('executeBtn');
@@ -496,6 +494,42 @@
             const item = commandHistory[index];
             document.getElementById('command').value = item.command;
             document.getElementById('args').value = item.args.join(' ');
+        }
+
+        function parseArguments(argsText) {
+            const args = [];
+            let current = '';
+            let inQuotes = false;
+            let quoteChar = '';
+            
+            for (let i = 0; i < argsText.length; i++) {
+                const char = argsText[i];
+                
+                if ((char === '"' || char === "'") && !inQuotes) {
+                    inQuotes = true;
+                    quoteChar = char;
+                } else if (char === quoteChar && inQuotes) {
+                    inQuotes = false;
+                    quoteChar = '';
+                    if (current.trim()) {
+                        args.push(current.trim());
+                        current = '';
+                    }
+                } else if ((char === ' ' || char === '\n') && !inQuotes) {
+                    if (current.trim()) {
+                        args.push(current.trim());
+                        current = '';
+                    }
+                } else {
+                    current += char;
+                }
+            }
+            
+            if (current.trim()) {
+                args.push(current.trim());
+            }
+            
+            return args;
         }
         
         document.getElementById('args').addEventListener('keydown', function(e) {
