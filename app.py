@@ -49,6 +49,69 @@ def build_url(path):
 def inject_base_path():
     return {'base_path': base_path}
 
+# ============================================
+# Command History Management
+# ============================================
+
+# History file location - can be configured via environment
+HISTORY_FILE = os.environ.get('HISTORY_FILE', 
+                               Path.cwd().parent / 'logs' / 'command_history.json')
+HISTORY_MAX_ENTRIES = 100  # Keep last 100 commands
+
+def ensure_history_file():
+    """Ensure history file and directory exist"""
+    history_path = Path(HISTORY_FILE)
+    history_path.parent.mkdir(parents=True, exist_ok=True)
+    
+    if not history_path.exists():
+        history_path.write_text('[]')
+        logger.info(f"Created history file: {history_path}")
+
+def load_command_history():
+    """Load command history from file"""
+    try:
+        ensure_history_file()
+        with open(HISTORY_FILE, 'r') as f:
+            history = json.load(f)
+            # Return most recent first
+            return history[::-1]
+    except Exception as e:
+        logger.error(f"Failed to load history: {e}")
+        return []
+
+def save_command_to_history(command, args, success, username):
+    """Append command to history file"""
+    try:
+        ensure_history_file()
+        
+        # Load existing history
+        with open(HISTORY_FILE, 'r') as f:
+            history = json.load(f)
+        
+        # Add new entry
+        entry = {
+            'command': command,
+            'args': args,
+            'success': success,
+            'username': username,
+            'timestamp': datetime.now().isoformat()
+        }
+        history.append(entry)
+        
+        # Keep only last N entries
+        history = history[-HISTORY_MAX_ENTRIES:]
+        
+        # Save back
+        with open(HISTORY_FILE, 'w') as f:
+            json.dump(history, f, indent=2)
+        
+        logger.debug(f"Saved command to history: {command} by {username}")
+        
+    except Exception as e:
+        logger.error(f"Failed to save command to history: {e}")
+
+# ============================================
+
 # Session configuration
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', os.urandom(32).hex())
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
@@ -311,6 +374,15 @@ def login():
         logger.info(f"Redirecting to index: {build_url('/')}")
         return redirect(build_url('/'))
 
+@app.route('/history')
+def get_history():
+    """Get command history - requires authentication"""
+    if 'user' not in session:
+        return jsonify({'error': 'Authentication required'}), 401
+    
+    history = load_command_history()
+    return jsonify({'history': history[:50]})  # Return last 50
+
 @app.route('/logout')
 def logout():
     """Handle logout"""
@@ -328,9 +400,14 @@ def index():
     
     # User is logged in, show the main page
     user = session.get('user', {})
+    
+    # Load command history
+    history = load_command_history()
+    
     return render_template('index.html', 
                          commands=user.get('allowed_commands', []),
-                         user=user)
+                         user=user,
+                         initial_history=history[:20])  # Pass last 20 to template
 
 @app.route('/execute', methods=['POST'])
 def execute():
@@ -357,6 +434,9 @@ def execute():
     
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        
+        # Save to command history
+        save_command_to_history(command, args, result.returncode == 0, user['username'])
         
         return jsonify({
             'success': result.returncode == 0,

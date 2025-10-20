@@ -285,18 +285,77 @@
         </div>
         
         <div class="history" id="history">
-            <h3>Command History</h3>
+            <h3>
+                Command History - All Users
+                <span id="lastRefresh" style="font-size: 12px; color: #999; font-weight: normal; margin-left: 10px;"></span>
+                <button onclick="loadHistoryFromServer()" style="float: right; padding: 5px 15px; font-size: 13px; background: #007acc; margin-top: -5px;">
+                    🔄 Refresh
+                </button>
+            </h3>
             <div id="historyList"></div>
         </div>
     </div>
 
     <script>
         let executing = false;
-        let commandHistory = JSON.parse(localStorage.getItem('taskAdminHistory') || '[]');
+        let commandHistory = [];
+        let autoRefreshInterval;
 
+        // Load history on page load
         window.onload = function() {
-            renderHistory();
+            loadHistoryFromServer();
+            
+            // Auto-refresh history every 30 seconds
+            autoRefreshInterval = setInterval(() => {
+                loadHistoryFromServer();
+            }, 30000);
         };
+        
+        // Clean up interval on page unload
+        window.onbeforeunload = function() {
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+            }
+        };
+
+        async function loadHistoryFromServer() {
+            const refreshBtn = document.querySelector('button[onclick="loadHistoryFromServer()"]');
+            const originalText = refreshBtn ? refreshBtn.innerHTML : '';
+            
+            if (refreshBtn) {
+                refreshBtn.innerHTML = '⏳ Loading...';
+                refreshBtn.disabled = true;
+            }
+            
+            try {
+                const response = await fetch('{{ base_path }}/history');
+                if (response.ok) {
+                    const data = await response.json();
+                    commandHistory = data.history;
+                    renderHistory();
+                    
+                    // Update last refresh time
+                    const lastRefreshEl = document.getElementById('lastRefresh');
+                    if (lastRefreshEl) {
+                        lastRefreshEl.textContent = `(Last updated: ${new Date().toLocaleTimeString()})`;
+                    }
+                } else {
+                    // Fallback to initial history from template
+                    commandHistory = {{ initial_history | tojson | safe }};
+                    renderHistory();
+                }
+            } catch (error) {
+                console.error('Failed to load history:', error);
+                // Fallback to initial history from template
+                commandHistory = {{ initial_history | tojson | safe }};
+                renderHistory();
+            } finally {
+                if (refreshBtn) {
+                    refreshBtn.innerHTML = originalText;
+                    refreshBtn.disabled = false;
+                }
+            }
+        }
 
         async function executeCommand() {
             if (executing) return;
@@ -355,7 +414,8 @@
                     output.textContent = outputText;
                     output.className = data.success ? 'output success' : 'output error';
                     
-                    addToHistory(command, args, data.success, data.executed_by);
+                    // Reload history from server
+                    await loadHistoryFromServer();
                     
                     showStatus(
                         data.success ? 'Command executed successfully' : 'Command failed', 
