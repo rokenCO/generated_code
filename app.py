@@ -266,6 +266,31 @@ def check_user_permissions(roles):
     
     return permissions
 
+# ============================================
+# SAML SSO Functions (if enabled)
+# ============================================
+
+def prepare_flask_request(request):
+    """Prepare request for SAML (handle proxy setup)"""
+    return {
+        'https': 'on' if request.scheme == 'https' else 'off',
+        'http_host': request.host,
+        'server_port': request.environ.get('SERVER_PORT', '443' if request.scheme == 'https' else '80'),
+        'script_name': Config.APP_BASE_PATH if hasattr(Config, 'APP_BASE_PATH') else '',
+        'get_data': request.args.copy(),
+        'post_data': request.form.copy(),
+        'query_string': request.query_string.decode('utf-8')
+    }
+
+def init_saml_auth(req):
+    """Initialize SAML auth with settings"""
+    if not SAML_ENABLED:
+        return None
+    auth = OneLogin_Saml2_Auth(req, get_saml_settings())
+    return auth
+
+# ============================================
+
 def login_required(f):
     """Decorator for routes requiring authentication"""
     @wraps(f)
@@ -291,7 +316,7 @@ def write_permission_required(f):
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    """Handle login form"""
+    """Handle LDAP login form"""
     # Log request details for debugging
     logger.info(f"Login request - Method: {request.method}, Path: {request.path}, "
                 f"Full URL: {request.url}, Base path: {base_path}")
@@ -304,7 +329,10 @@ def login():
         
         next_url = request.args.get('next', build_url('/'))
         logger.info(f"Showing login page, next_url: {next_url}")
-        return render_template('login.html', next_url=next_url)
+        return render_template('login.html', 
+                             next_url=next_url,
+                             saml_enabled=SAML_ENABLED,
+                             saml_login_url=build_url('/saml/login'))
     
     # POST - process login
     username = request.form.get('username', '').strip()
@@ -373,6 +401,151 @@ def login():
         # Default to index
         logger.info(f"Redirecting to index: {build_url('/')}")
         return redirect(build_url('/'))
+    
+@app.route('/saml/login')
+def saml_login():
+    """Initiate SAML SSO login"""
+    if not SAML_ENABLED:
+        return "SSO is not enabled", 403
+    
+    req = prepare_flask_request(request)
+    auth = init_saml_auth(req)
+    
+    # Store next URL in session
+    if request.args.get('next'):
+        session['next_url'] = request.args.get('next')
+    
+    sso_url = auth.login()
+    logger.info(f"Redirecting to SSO: {sso_url}")
+    return redirect(sso_url)
+
+
+@app.route('/saml/acs', methods=['POST'])
+def saml_acs():
+    """SAML Assertion Consumer Service - handles SSO response"""
+    if not SAML_ENABLED:
+        return "SSO is not enabled", 403
+    
+    req = prepare_flask_request(request)
+    auth = init_saml_auth(req)
+    
+    auth.process_response()
+    errors = auth.get_errors()
+    
+    if not errors:
+        # Extract username from SAML response
+        saml_attributes = auth.get_attributes()
+        username = auth.get_nameid()
+        
+        logger.info(f"SAML attributes received: {list(saml_attributes.keys())}")
+        
+        # Try common attribute names for username
+        for attr in ['uid', 'username', 'sAMAccountName', 'email', 'mail']:
+            if attr in saml_attributes and saml_attributes[attr]:
+                username = saml_attributes[attr][0]
+                logger.info(f"Found username in attribute '{attr}': {username}")
+                break
+        
+        # Clean username (remove domain if present)
+        if '\\' in username:
+            username = username.split('\\')[1]
+        elif '@' in username:
+            username = username.split('@')[0]
+        
+        logger.info(f"User {username} authenticated via SSO")
+        
+        # Get LDAP roles
+        roles = get_user_ldap_roles(username)
+        permissions = check_user_permissions(roles)
+        
+        # Check if user has any permissions
+        if not permissions['can_read'] and not permissions['can_write']:
+            logger.warning(f"User {username} has no permissions")
+            return "Access Denied: No permissions assigned to your roles", 403
+        
+        # Get user details from LDAP
+        user_data = get_user_details(username)
+        if not user_data:
+            # Fallback if LDAP lookup fails
+            user_data = {
+                'username': username,
+                'email': saml_attributes.get('email', [None])[0] or saml_attributes.get('mail', [None])[0],
+                'full_name': saml_attributes.get('displayName', [username])[0],
+                'roles': roles
+            }
+        
+        # Filter roles to only show relevant ones
+        relevant_roles = [
+            role for role in roles 
+            if role in Config.LDAP_DEFAULT_READ_ROLES or role in Config.LDAP_DEFAULT_WRITE_ROLES
+        ]
+        
+        # Create session
+        session['user'] = {
+            'username': user_data['username'],
+            'email': user_data.get('email'),
+            'full_name': user_data.get('full_name', username),
+            'roles': roles,
+            'relevant_roles': relevant_roles,
+            'permissions': permissions,
+            'allowed_commands': permissions['allowed_commands'],
+            'auth_method': 'saml'
+        }
+        session['samlSessionIndex'] = auth.get_session_index()
+        session.permanent = True
+        
+        logger.info(f"User {username} logged in via SSO with permissions: {permissions}")
+        
+        # Redirect to next URL or home
+        if 'next_url' in session:
+            return redirect(session.pop('next_url'))
+        return redirect(build_url('/'))
+        
+    else:
+        error_reason = auth.get_last_error_reason()
+        logger.error(f"SAML auth failed: {', '.join(errors)}")
+        logger.error(f"Error reason: {error_reason}")
+        return f"SSO Authentication failed: {error_reason}", 400
+
+
+@app.route('/saml/metadata')
+def saml_metadata():
+    """Provide SP metadata for IdP configuration"""
+    if not SAML_ENABLED:
+        return "SSO is not enabled", 403
+    
+    req = prepare_flask_request(request)
+    auth = init_saml_auth(req)
+    settings = auth.get_settings()
+    metadata = settings.get_sp_metadata()
+    errors = settings.validate_metadata(metadata)
+    
+    if len(errors) == 0:
+        return metadata, 200, {'Content-Type': 'text/xml'}
+    else:
+        return ', '.join(errors), 500
+
+
+@app.route('/saml/sls')
+def saml_sls():
+    """SAML Single Logout Service"""
+    if not SAML_ENABLED:
+        return "SSO is not enabled", 403
+    
+    req = prepare_flask_request(request)
+    auth = init_saml_auth(req)
+    
+    url = auth.process_slo()
+    errors = auth.get_errors()
+    
+    if len(errors) == 0:
+        if url is not None:
+            return redirect(url)
+        else:
+            session.clear()
+            return redirect(build_url('/login'))
+    else:
+        return "Error processing logout", 400
 
 @app.route('/history')
 def get_history():
@@ -385,11 +558,31 @@ def get_history():
 
 @app.route('/logout')
 def logout():
-    """Handle logout"""
+    """Handle logout (both LDAP and SAML)"""
     username = session.get('user', {}).get('username', 'unknown')
-    session.clear()
-    logger.info(f"User {username} logged out")
-    return redirect(build_url('/login'))
+    auth_method = session.get('user', {}).get('auth_method', 'ldap')
+    
+    logger.info(f"User {username} logging out (auth method: {auth_method})")
+    
+    # If logged in via SAML, do SAML logout
+    if auth_method == 'saml' and SAML_ENABLED:
+        req = prepare_flask_request(request)
+        auth = init_saml_auth(req)
+        
+        name_id = session.get('samlNameId')
+        session_index = session.get('samlSessionIndex')
+        
+        session.clear()
+        
+        # Redirect to IdP logout
+        return redirect(auth.logout(
+            name_id=name_id,
+            session_index=session_index
+        ))
+    else:
+        # LDAP logout - just clear session
+        session.clear()
+        return redirect(build_url('/login'))
 
 @app.route('/')
 def index():
