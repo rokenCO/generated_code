@@ -433,9 +433,10 @@
         {% if 'console_control' in commands %}
         <!-- Console Control Tab -->
         <div id="console-control-tab" class="tab-content">
-            <h2 style="margin-top: 0;">📊 Console Control - Booking Load</h2>
+            <h2 style="margin-top: 0;">📊 Console Control - Booking Load & Book</h2>
             <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
-                Upload a CSV file to execute the booking_load command through the console control interface.
+                Upload a CSV file to execute the booking workflow through the console control interface.<br>
+                <strong>Process:</strong> 1) booking_load (CSV file) → 2) booking_book all
             </p>
             
             <div class="console-form">
@@ -469,7 +470,7 @@
                     disabled
                     class="console-execute-btn"
                 >
-                    🚀 Execute booking_load
+                    🚀 Execute Booking Workflow
                 </button>
             </div>
             
@@ -715,7 +716,7 @@
             btn.innerHTML = '⏳ Executing... <div class="spinner"></div>';
             btn.disabled = true;
             
-            output.textContent = `Executing: console_control booking_load ${uploadedFile.originalName}\n\nPlease wait, this may take several minutes for large files...\n\n`;
+            output.textContent = `Executing booking workflow: ${uploadedFile.originalName}\n\n1. booking_load ${uploadedFile.originalName}\n2. booking_book all\n\nPlease wait, this may take several minutes for large files...\n\n`;
             output.className = 'output';
             
             try {
@@ -737,7 +738,9 @@
                 const data = await response.json();
                 
                 if (response.ok) {
-                    let outputText = `Command: console_control booking_load ${uploadedFile.originalName}\n`;
+                    let outputText = `Booking Workflow Execution:\n`;
+                    outputText += `1. booking_load ${uploadedFile.originalName}\n`;
+                    outputText += `2. booking_book all\n`;
                     outputText += `Return Code: ${data.returncode}\n`;
                     outputText += '─'.repeat(60) + '\n\n';
                     
@@ -772,7 +775,7 @@
                 output.className = 'output error';
                 showConsoleStatus('Failed to execute console command', 'error');
             } finally {
-                btn.innerHTML = '🚀 Execute booking_load';
+                btn.innerHTML = '🚀 Execute Booking Workflow';
                 btn.disabled = false;
                 executing = false;
             }
