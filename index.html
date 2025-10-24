@@ -507,17 +507,24 @@
         
         function stripAnsiCodes(text) {
             // Remove ANSI escape sequences
-            // This handles color codes, cursor movements, and bracketed paste mode
+            // This handles cases where ESC might be represented differently or partially stripped
             return text
-                // Remove CSI sequences (most common)
-                .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')
+                // Remove complete ANSI CSI sequences with ESC character
+                .replace(/\x1B\[[0-9;?]*[A-Za-z]/g, '')
+                // Remove CSI sequences without ESC (in case ESC was already removed elsewhere)
+                .replace(/\[[\?0-9;]*[hlHJKmsu]/g, '')
                 // Remove OSC sequences
                 .replace(/\x1B\][^\x07]*\x07/g, '')
-                // Remove other escape sequences
-                .replace(/\x1B[=>]/g, '')
-                // Remove bracketed paste mode markers
-                .replace(/\x1B\[?[0-9]*[hl]/g, '')
-                // Remove any remaining ESC characters followed by single char
+                // Remove other escape sequences with ESC
+                .replace(/\x1B[=>()]/g, '')
+                // Remove bracketed paste mode with ESC
+                .replace(/\x1B\[\?[0-9]+[hl]/g, '')
+                // Remove standalone control sequences that lost their ESC
+                .replace(/\?[0-9]+[hl]>/g, '')
+                .replace(/\[[0-9;]+m/g, '')
+                // Clean up any remaining malformed sequences at line starts
+                .replace(/^\?[0-9]+[hl]/gm, '')
+                // Remove ESC followed by any character
                 .replace(/\x1B./g, '');
         }
         
