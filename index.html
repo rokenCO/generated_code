@@ -82,7 +82,45 @@
             color: #333;
             border-bottom: 2px solid #007acc;
             padding-bottom: 10px;
+            margin-bottom: 20px;
         }
+        
+        /* Tab Navigation */
+        .tab-navigation {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 30px;
+            border-bottom: 2px solid #e0e0e0;
+            padding-bottom: 0;
+        }
+        .tab-button {
+            background: none;
+            border: none;
+            padding: 12px 24px;
+            font-size: 15px;
+            font-weight: 600;
+            color: #666;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+            margin-bottom: -2px;
+        }
+        .tab-button:hover {
+            color: #007acc;
+            background: #f5f5f5;
+        }
+        .tab-button.active {
+            color: #007acc;
+            border-bottom-color: #007acc;
+            background: none;
+        }
+        .tab-content {
+            display: none;
+        }
+        .tab-content.active {
+            display: block;
+        }
+        
         .command-form {
             display: grid;
             gap: 15px;
@@ -213,6 +251,85 @@
         .permission-badge.write {
             background: #ff9800;
         }
+        
+        /* Console Control Styles */
+        .console-form {
+            display: grid;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .file-upload-area {
+            border: 2px dashed #ccc;
+            border-radius: 8px;
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s;
+            cursor: pointer;
+            background: #fafafa;
+        }
+        .file-upload-area:hover {
+            border-color: #007acc;
+            background: #f0f8ff;
+        }
+        .file-upload-area.dragover {
+            border-color: #007acc;
+            background: #e3f2fd;
+            transform: scale(1.02);
+        }
+        .upload-prompt {
+            color: #666;
+        }
+        .file-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            border: 1px solid #e0e0e0;
+        }
+        .file-icon {
+            font-size: 32px;
+        }
+        .file-details {
+            flex: 1;
+            text-align: left;
+        }
+        .file-name {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 5px;
+        }
+        .file-size {
+            font-size: 13px;
+            color: #666;
+        }
+        .file-remove {
+            background: #f44336;
+            color: white;
+            border: none;
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background 0.3s;
+        }
+        .file-remove:hover {
+            background: #d32f2f;
+        }
+        .console-execute-btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-size: 16px;
+            padding: 14px 24px;
+        }
+        .console-execute-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
     </style>
 </head>
 <body>
@@ -250,56 +367,141 @@
     <div class="container">
         <h1>Task Admin Control Panel</h1>
         
-        <div class="command-form">
-            <div>
-                <label for="command">Command:</label>
-                <select id="command">
-                    <option value="">-- Select Command --</option>
-                    {% for cmd in commands %}
-                    <option value="{{ cmd }}">{{ cmd }}</option>
-                    {% endfor %}
-                </select>
+        <!-- Tab Navigation -->
+        <div class="tab-navigation">
+            <button class="tab-button active" onclick="switchTab('task-admin')">
+                🔧 Task Admin
+            </button>
+            {% if 'console_control' in commands %}
+            <button class="tab-button" onclick="switchTab('console-control')">
+                📊 Console Control
+            </button>
+            {% endif %}
+        </div>
+        
+        <!-- Task Admin Tab -->
+        <div id="task-admin-tab" class="tab-content active">
+            <div class="command-form">
+                <div>
+                    <label for="command">Command:</label>
+                    <select id="command">
+                        <option value="">-- Select Command --</option>
+                        {% for cmd in commands %}
+                        {% if cmd != 'console_control' %}
+                        <option value="{{ cmd }}">{{ cmd }}</option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                </div>
+                
+                <div>
+                    <label for="args">Arguments (space-separated or one per line):</label>
+                    <textarea id="args" rows="3" class="args-input" 
+                        placeholder="arg1 arg2 arg3&#10;or&#10;arg1&#10;arg2&#10;arg3"></textarea>
+                </div>
+                
+                <div>
+                    <button id="executeBtn" onclick="executeCommand()">
+                        Execute Command
+                    </button>
+                    <button id="clearBtn" onclick="clearOutput()" style="background: #666; margin-left: 10px;">
+                        Clear Output
+                    </button>
+                </div>
             </div>
             
-            <div>
-                <label for="args">Arguments (space-separated or one per line):</label>
-                <textarea id="args" rows="3" class="args-input" 
-                    placeholder="arg1 arg2 arg3&#10;or&#10;arg1&#10;arg2&#10;arg3"></textarea>
+            <div class="status" id="status"></div>
+            
+            <div class="output-section">
+                <label>Output:</label>
+                <div id="output" class="output">Ready to execute commands...</div>
             </div>
             
-            <div>
-                <button id="executeBtn" onclick="executeCommand()">
-                    Execute Command
-                </button>
-                <button id="clearBtn" onclick="clearOutput()" style="background: #666; margin-left: 10px;">
-                    Clear Output
-                </button>
+            <div class="history" id="history">
+                <h3>
+                    Command History - Task Admin
+                    <span id="lastRefresh" style="font-size: 12px; color: #999; font-weight: normal; margin-left: 10px;"></span>
+                    <button onclick="loadHistoryFromServer()" style="float: right; padding: 5px 15px; font-size: 13px; background: #007acc; margin-top: -5px;">
+                        🔄 Refresh
+                    </button>
+                </h3>
+                <div id="historyList"></div>
             </div>
         </div>
+        <!-- End Task Admin Tab -->
         
-        <div class="status" id="status"></div>
-        
-        <div class="output-section">
-            <label>Output:</label>
-            <div id="output" class="output">Ready to execute commands...</div>
-        </div>
-        
-        <div class="history" id="history">
-            <h3>
-                Command History - All Users
-                <span id="lastRefresh" style="font-size: 12px; color: #999; font-weight: normal; margin-left: 10px;"></span>
-                <button onclick="loadHistoryFromServer()" style="float: right; padding: 5px 15px; font-size: 13px; background: #007acc; margin-top: -5px;">
-                    🔄 Refresh
+        {% if 'console_control' in commands %}
+        <!-- Console Control Tab -->
+        <div id="console-control-tab" class="tab-content">
+            <h2 style="margin-top: 0;">📊 Console Control - Booking Load</h2>
+            <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                Upload a CSV file to execute the booking_load command through the console control interface.
+            </p>
+            
+            <div class="console-form">
+                <div class="file-upload-area" id="fileUploadArea">
+                    <input 
+                        type="file" 
+                        id="csvFile" 
+                        accept=".csv,.txt"
+                        style="display: none;"
+                        onchange="handleFileSelect(event)"
+                    >
+                    <div class="upload-prompt" onclick="document.getElementById('csvFile').click()">
+                        <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
+                        <div style="font-weight: 600; margin-bottom: 5px;">Click to select CSV file</div>
+                        <div style="font-size: 13px; color: #666;">or drag and drop here</div>
+                        <div style="font-size: 12px; color: #999; margin-top: 10px;">Max file size: 16MB</div>
+                    </div>
+                    <div class="file-info" id="fileInfo" style="display: none;">
+                        <div class="file-icon">📄</div>
+                        <div class="file-details">
+                            <div class="file-name" id="fileName"></div>
+                            <div class="file-size" id="fileSize"></div>
+                        </div>
+                        <button class="file-remove" onclick="removeFile()">✕</button>
+                    </div>
+                </div>
+                
+                <button 
+                    id="consoleExecuteBtn" 
+                    onclick="executeConsoleCommand()"
+                    disabled
+                    class="console-execute-btn"
+                >
+                    🚀 Execute booking_load
                 </button>
-            </h3>
-            <div id="historyList"></div>
+            </div>
+            
+            <div class="status" id="console-status"></div>
+            
+            <div class="output-section">
+                <label>Output:</label>
+                <div id="console-output" class="output">Ready to execute console commands...</div>
+            </div>
+            
+            <div class="history" id="console-history">
+                <h3>
+                    Command History - Console Control
+                    <span id="consoleLastRefresh" style="font-size: 12px; color: #999; font-weight: normal; margin-left: 10px;"></span>
+                    <button onclick="loadConsoleHistoryFromServer()" style="float: right; padding: 5px 15px; font-size: 13px; background: #007acc; margin-top: -5px;">
+                        🔄 Refresh
+                    </button>
+                </h3>
+                <div id="consoleHistoryList"></div>
+            </div>
         </div>
+        <!-- End Console Control Tab -->
+        {% endif %}
     </div>
 
     <script>
         let executing = false;
         let commandHistory = [];
+        let consoleCommandHistory = [];
         let autoRefreshInterval;
+        let uploadedFile = null;
+        let currentTab = 'task-admin';
 
         // Load history on page load
         window.onload = function() {
@@ -307,8 +509,15 @@
             
             // Auto-refresh history every 30 seconds
             autoRefreshInterval = setInterval(() => {
-                loadHistoryFromServer();
+                if (currentTab === 'task-admin') {
+                    loadHistoryFromServer();
+                } else if (currentTab === 'console-control') {
+                    loadConsoleHistoryFromServer();
+                }
             }, 30000);
+            
+            // Setup drag and drop for file upload
+            setupDragAndDrop();
         };
         
         // Clean up interval on page unload
@@ -317,9 +526,260 @@
                 clearInterval(autoRefreshInterval);
             }
         };
+        
+        // Tab switching function
+        function switchTab(tabName) {
+            currentTab = tabName;
+            
+            // Hide all tabs
+            document.querySelectorAll('.tab-content').forEach(tab => {
+                tab.classList.remove('active');
+            });
+            
+            // Remove active from all buttons
+            document.querySelectorAll('.tab-button').forEach(btn => {
+                btn.classList.remove('active');
+            });
+            
+            // Show selected tab
+            document.getElementById(tabName + '-tab').classList.add('active');
+            
+            // Activate selected button
+            event.target.classList.add('active');
+            
+            // Load appropriate history
+            if (tabName === 'console-control') {
+                loadConsoleHistoryFromServer();
+            } else {
+                loadHistoryFromServer();
+            }
+        }
+        
+        function setupDragAndDrop() {
+            const uploadArea = document.getElementById('fileUploadArea');
+            if (!uploadArea) return;
+            
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, () => {
+                    uploadArea.classList.add('dragover');
+                }, false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                uploadArea.addEventListener(eventName, () => {
+                    uploadArea.classList.remove('dragover');
+                }, false);
+            });
+            
+            uploadArea.addEventListener('drop', handleDrop, false);
+        }
+        
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            
+            if (files.length > 0) {
+                const file = files[0];
+                handleFile(file);
+            }
+        }
+        
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (file) {
+                handleFile(file);
+            }
+        }
+        
+        function handleFile(file) {
+            const allowedTypes = ['text/csv', 'text/plain', 'application/vnd.ms-excel'];
+            const fileName = file.name.toLowerCase();
+            
+            if (!fileName.endsWith('.csv') && !fileName.endsWith('.txt') && !allowedTypes.includes(file.type)) {
+                showConsoleStatus('Only CSV and TXT files are allowed', 'error');
+                return;
+            }
+            
+            if (file.size > 16 * 1024 * 1024) {
+                showConsoleStatus('File size must be less than 16MB', 'error');
+                return;
+            }
+            
+            uploadFile(file);
+        }
+        
+        async function uploadFile(file) {
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            const uploadArea = document.getElementById('fileUploadArea');
+            const uploadPrompt = uploadArea.querySelector('.upload-prompt');
+            
+            uploadPrompt.innerHTML = '<div class="spinner"></div> Uploading...';
+            
+            try {
+                const response = await fetch('{{ base_path }}/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (response.status === 401) {
+                    window.location.href = '{{ base_path }}/login?next=' + encodeURIComponent(window.location.pathname);
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    uploadedFile = {
+                        filename: data.filename,
+                        originalName: data.original_filename,
+                        size: data.size
+                    };
+                    
+                    displayFileInfo();
+                    showConsoleStatus('File uploaded successfully', 'success');
+                } else {
+                    throw new Error(data.error || 'Upload failed');
+                }
+            } catch (error) {
+                showConsoleStatus('Upload failed: ' + error.message, 'error');
+                uploadPrompt.innerHTML = `
+                    <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
+                    <div style="font-weight: 600; margin-bottom: 5px;">Click to select CSV file</div>
+                    <div style="font-size: 13px; color: #666;">or drag and drop here</div>
+                    <div style="font-size: 12px; color: #999; margin-top: 10px;">Max file size: 16MB</div>
+                `;
+            }
+        }
+        
+        function displayFileInfo() {
+            const uploadArea = document.getElementById('fileUploadArea');
+            const uploadPrompt = uploadArea.querySelector('.upload-prompt');
+            const fileInfo = document.getElementById('fileInfo');
+            const fileName = document.getElementById('fileName');
+            const fileSize = document.getElementById('fileSize');
+            const executeBtn = document.getElementById('consoleExecuteBtn');
+            
+            uploadPrompt.style.display = 'none';
+            fileInfo.style.display = 'flex';
+            
+            fileName.textContent = uploadedFile.originalName;
+            fileSize.textContent = formatFileSize(uploadedFile.size);
+            
+            executeBtn.disabled = false;
+            uploadArea.style.cursor = 'default';
+        }
+        
+        function removeFile() {
+            uploadedFile = null;
+            
+            const uploadArea = document.getElementById('fileUploadArea');
+            const uploadPrompt = uploadArea.querySelector('.upload-prompt');
+            const fileInfo = document.getElementById('fileInfo');
+            const executeBtn = document.getElementById('consoleExecuteBtn');
+            const fileInput = document.getElementById('csvFile');
+            
+            uploadPrompt.style.display = 'block';
+            fileInfo.style.display = 'none';
+            executeBtn.disabled = true;
+            fileInput.value = '';
+            
+            uploadArea.style.cursor = 'pointer';
+        }
+        
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return Math.round(bytes / Math.pow(k, i) * 100) / 100 + ' ' + sizes[i];
+        }
+        
+        async function executeConsoleCommand() {
+            if (executing || !uploadedFile) return;
+            
+            executing = true;
+            const btn = document.getElementById('consoleExecuteBtn');
+            const output = document.getElementById('console-output');
+            
+            btn.innerHTML = '⏳ Executing... <div class="spinner"></div>';
+            btn.disabled = true;
+            
+            output.textContent = `Executing: console_control booking_load ${uploadedFile.originalName}\n\nPlease wait, this may take several minutes for large files...\n\n`;
+            output.className = 'output';
+            
+            try {
+                const response = await fetch('{{ base_path }}/console-execute', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        csv_filename: uploadedFile.filename
+                    })
+                });
+                
+                if (response.status === 401) {
+                    window.location.href = '{{ base_path }}/login?next=' + encodeURIComponent(window.location.pathname);
+                    return;
+                }
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    let outputText = `Command: console_control booking_load ${uploadedFile.originalName}\n`;
+                    outputText += `Return Code: ${data.returncode}\n`;
+                    outputText += '─'.repeat(60) + '\n\n';
+                    
+                    if (data.stdout) {
+                        outputText += 'STDOUT:\n' + data.stdout + '\n';
+                    }
+                    
+                    if (data.stderr) {
+                        outputText += '\nSTDERR:\n' + data.stderr;
+                    }
+                    
+                    output.textContent = outputText;
+                    output.className = data.success ? 'output success' : 'output error';
+                    
+                    await loadConsoleHistoryFromServer();
+                    
+                    showConsoleStatus(
+                        data.success ? 'Console command executed successfully' : 'Console command failed', 
+                        data.success ? 'success' : 'error'
+                    );
+                    
+                    if (data.success) {
+                        removeFile();
+                    }
+                } else {
+                    output.textContent = `Error: ${data.error}`;
+                    output.className = 'output error';
+                    showConsoleStatus(data.error, 'error');
+                }
+            } catch (error) {
+                output.textContent = `Network Error: ${error.message}`;
+                output.className = 'output error';
+                showConsoleStatus('Failed to execute console command', 'error');
+            } finally {
+                btn.innerHTML = '🚀 Execute booking_load';
+                btn.disabled = false;
+                executing = false;
+            }
+        }
 
         async function loadHistoryFromServer() {
-            const refreshBtn = document.querySelector('button[onclick="loadHistoryFromServer()"]');
+            const refreshBtn = document.querySelector('#history button[onclick="loadHistoryFromServer()"]');
             const originalText = refreshBtn ? refreshBtn.innerHTML : '';
             
             if (refreshBtn) {
@@ -331,24 +791,59 @@
                 const response = await fetch('{{ base_path }}/history');
                 if (response.ok) {
                     const data = await response.json();
-                    commandHistory = data.history;
+                    // Filter out console_control commands
+                    commandHistory = data.history.filter(item => item.command !== 'console_control');
                     renderHistory();
                     
-                    // Update last refresh time
                     const lastRefreshEl = document.getElementById('lastRefresh');
                     if (lastRefreshEl) {
                         lastRefreshEl.textContent = `(Last updated: ${new Date().toLocaleTimeString()})`;
                     }
                 } else {
-                    // Fallback to initial history from template
-                    commandHistory = {{ initial_history | tojson | safe }};
+                    commandHistory = {{ initial_history | tojson | safe }}.filter(item => item.command !== 'console_control');
                     renderHistory();
                 }
             } catch (error) {
                 console.error('Failed to load history:', error);
-                // Fallback to initial history from template
-                commandHistory = {{ initial_history | tojson | safe }};
+                commandHistory = {{ initial_history | tojson | safe }}.filter(item => item.command !== 'console_control');
                 renderHistory();
+            } finally {
+                if (refreshBtn) {
+                    refreshBtn.innerHTML = originalText;
+                    refreshBtn.disabled = false;
+                }
+            }
+        }
+        
+        async function loadConsoleHistoryFromServer() {
+            const refreshBtn = document.querySelector('#console-history button[onclick="loadConsoleHistoryFromServer()"]');
+            const originalText = refreshBtn ? refreshBtn.innerHTML : '';
+            
+            if (refreshBtn) {
+                refreshBtn.innerHTML = '⏳ Loading...';
+                refreshBtn.disabled = true;
+            }
+            
+            try {
+                const response = await fetch('{{ base_path }}/history');
+                if (response.ok) {
+                    const data = await response.json();
+                    // Filter only console_control commands
+                    consoleCommandHistory = data.history.filter(item => item.command === 'console_control');
+                    renderConsoleHistory();
+                    
+                    const lastRefreshEl = document.getElementById('consoleLastRefresh');
+                    if (lastRefreshEl) {
+                        lastRefreshEl.textContent = `(Last updated: ${new Date().toLocaleTimeString()})`;
+                    }
+                } else {
+                    consoleCommandHistory = {{ initial_history | tojson | safe }}.filter(item => item.command === 'console_control');
+                    renderConsoleHistory();
+                }
+            } catch (error) {
+                console.error('Failed to load console history:', error);
+                consoleCommandHistory = {{ initial_history | tojson | safe }}.filter(item => item.command === 'console_control');
+                renderConsoleHistory();
             } finally {
                 if (refreshBtn) {
                     refreshBtn.innerHTML = originalText;
@@ -412,7 +907,6 @@
                     output.textContent = outputText;
                     output.className = data.success ? 'output success' : 'output error';
                     
-                    // Reload history from server
                     await loadHistoryFromServer();
                     
                     showStatus(
@@ -436,9 +930,15 @@
         }
         
         function clearOutput() {
-            document.getElementById('output').textContent = 'Ready to execute commands...';
-            document.getElementById('output').className = 'output';
-            document.getElementById('status').style.display = 'none';
+            if (currentTab === 'task-admin') {
+                document.getElementById('output').textContent = 'Ready to execute commands...';
+                document.getElementById('output').className = 'output';
+                document.getElementById('status').style.display = 'none';
+            } else {
+                document.getElementById('console-output').textContent = 'Ready to execute console commands...';
+                document.getElementById('console-output').className = 'output';
+                document.getElementById('console-status').style.display = 'none';
+            }
         }
         
         function showStatus(message, type) {
@@ -452,19 +952,15 @@
             }, 5000);
         }
         
-        function addToHistory(command, args, success, username) {
-            const item = {
-                command,
-                args,
-                success,
-                username: username || 'Unknown',
-                timestamp: new Date().toISOString()
-            };
+        function showConsoleStatus(message, type) {
+            const status = document.getElementById('console-status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
             
-            commandHistory.unshift(item);
-            commandHistory = commandHistory.slice(0, 20);
-            localStorage.setItem('taskAdminHistory', JSON.stringify(commandHistory));
-            renderHistory();
+            setTimeout(() => {
+                status.style.display = 'none';
+            }, 5000);
         }
         
         function renderHistory() {
@@ -482,6 +978,30 @@
                         <div>
                             ${statusIcon} 
                             <strong>${item.command}</strong> ${item.args.join(' ')}
+                            ${item.username ? `<span class="username">by ${item.username}</span>` : ''}
+                        </div>
+                        <div class="timestamp">${new Date(item.timestamp).toLocaleString()}</div>
+                    </div>
+                `;
+            }).join('');
+        }
+        
+        function renderConsoleHistory() {
+            const historyList = document.getElementById('consoleHistoryList');
+            if (consoleCommandHistory.length === 0) {
+                historyList.innerHTML = '<p style="color: #666;">No console command history yet</p>';
+                return;
+            }
+            
+            historyList.innerHTML = consoleCommandHistory.map((item, index) => {
+                const statusIcon = item.success ? '✓' : '✗';
+                const borderColor = item.success ? '#4caf50' : '#f44336';
+                const fileName = item.args.length > 1 ? item.args[1] : 'unknown';
+                return `
+                    <div class="history-item" style="border-left-color: ${borderColor};">
+                        <div>
+                            ${statusIcon} 
+                            <strong>${item.args[0] || 'booking_load'}</strong> - ${fileName}
                             ${item.username ? `<span class="username">by ${item.username}</span>` : ''}
                         </div>
                         <div class="timestamp">${new Date(item.timestamp).toLocaleString()}</div>

@@ -11,6 +11,12 @@ import logging
 from config import Config
 
 app = Flask(__name__)
+# File upload configuration
+UPLOAD_FOLDER = Path('/tmp/task_admin_uploads')
+UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
+ALLOWED_EXTENSIONS = {'csv', 'txt'}
+app.config['UPLOAD_FOLDER'] = str(UPLOAD_FOLDER)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max file size
 
 # Logging
 logging.basicConfig(level=logging.INFO)
@@ -48,6 +54,11 @@ def build_url(path):
 @app.context_processor
 def inject_base_path():
     return {'base_path': base_path}
+
+def allowed_file(filename):
+    """Check if file extension is allowed"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
 # ============================================
 # Command History Management
@@ -642,6 +653,111 @@ def execute():
         return jsonify({'error': 'Command timeout'}), 408
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+    
+@app.route('/upload', methods=['POST'])
+@login_required
+@write_permission_required
+def upload_file():
+    """Handle CSV file upload"""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+    
+    file = request.files['file']
+    
+    if file.filename == '':
+        return jsonify({'error': 'No file selected'}), 400
+    
+    if not allowed_file(file.filename):
+        return jsonify({'error': 'Only CSV and TXT files are allowed'}), 400
+    
+    try:
+        filename = secure_filename(file.filename)
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        user = session['user']['username']
+        safe_filename = f"{user}_{timestamp}_{filename}"
+        
+        filepath = UPLOAD_FOLDER / safe_filename
+        file.save(str(filepath))
+        
+        logger.info(f"User {user} uploaded file: {safe_filename}")
+        
+        return jsonify({
+            'success': True,
+            'filename': safe_filename,
+            'original_filename': filename,
+            'size': filepath.stat().st_size
+        })
+    
+    except Exception as e:
+        logger.error(f"File upload failed: {e}")
+        return jsonify({'error': f'Upload failed: {str(e)}'}), 500
+
+@app.route('/console-execute', methods=['POST'])
+@login_required
+@write_permission_required
+def console_execute():
+    """Execute console control command with uploaded CSV"""
+    data = request.json
+    csv_filename = data.get('csv_filename')
+    
+    if not csv_filename:
+        return jsonify({'error': 'No CSV file specified'}), 400
+    
+    user = session['user']
+    filepath = UPLOAD_FOLDER / csv_filename
+    
+    if not filepath.exists():
+        return jsonify({'error': 'CSV file not found'}), 404
+    
+    if 'console_control' not in user.get('allowed_commands', []):
+        logger.warning(f"User {user['username']} attempted unauthorized command: console_control")
+        return jsonify({'error': 'Console control command not allowed for your roles'}), 403
+    
+    logger.info(f"User {user['username']} executing console_control with {csv_filename}")
+    
+    try:
+        console_script = getattr(Config, 'CONSOLE_CONTROL_PATH', '/path/to/console_control.sh')
+        cmd = [console_script, 'booking_load', str(filepath)]
+        
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            timeout=300,
+            cwd=filepath.parent
+        )
+        
+        save_command_to_history(
+            'console_control', 
+            ['booking_load', csv_filename], 
+            result.returncode == 0, 
+            user['username']
+        )
+        
+        return jsonify({
+            'success': result.returncode == 0,
+            'stdout': result.stdout,
+            'stderr': result.stderr,
+            'returncode': result.returncode,
+            'executed_by': user['username'],
+            'csv_file': csv_filename
+        })
+    
+    except subprocess.TimeoutExpired:
+        return jsonify({'error': 'Command timeout (max 5 minutes)'}), 408
+    except Exception as e:
+        logger.error(f"Console control execution failed: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/uploads/<filename>')
+@login_required
+def download_file(filename):
+    """Download uploaded file (for verification)"""
+    user = session['user']['username']
+    if not filename.startswith(user + '_'):
+        return jsonify({'error': 'Access denied'}), 403
+    
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
 
 @app.route('/health')
 def health():
