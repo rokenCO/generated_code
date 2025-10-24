@@ -43,6 +43,7 @@ echo "================================="
 echo ""
 
 # Use expect to interact with the interactive console
+# This executes BOTH booking_load AND booking_book all
 expect << EOF
 set timeout 300
 
@@ -52,23 +53,38 @@ spawn $CONSOLE_BINARY
 # Wait for the prompt (adjust "> " to match your actual prompt)
 expect "> "
 
-# Send the command with CSV file
+# Send the first command: booking_load
 send "$COMMAND $CSV_FILE\r"
 
-# Wait for completion - you may need to adjust this based on your console's output
+# Wait for command to complete and prompt to return
 expect {
-    "completed" { 
-        # Success message detected
-    }
     "error" {
-        # Error message detected
+        puts "\nError detected during booking_load"
         exit 1
     }
     "> " {
-        # Prompt returned, command finished
+        puts "\nbooking_load completed, executing booking_book all..."
     }
     timeout {
-        puts "Command timed out after 300 seconds"
+        puts "\nCommand timed out during booking_load"
+        exit 1
+    }
+}
+
+# Send the second command: booking_book all
+send "booking_book all\r"
+
+# Wait for second command to complete
+expect {
+    "error" {
+        puts "\nError detected during booking_book"
+        exit 1
+    }
+    "> " {
+        puts "\nbooking_book all completed"
+    }
+    timeout {
+        puts "\nCommand timed out during booking_book"
         exit 1
     }
 }
@@ -81,10 +97,12 @@ EOF
 # Check exit status
 if [ $? -eq 0 ]; then
     echo ""
-    echo "Console command completed successfully!"
+    echo "Console commands completed successfully!"
+    echo "✓ booking_load $CSV_FILE"
+    echo "✓ booking_book all"
     exit 0
 else
     echo ""
-    echo "Console command failed!"
+    echo "Console commands failed!"
     exit 1
 fi
