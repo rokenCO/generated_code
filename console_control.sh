@@ -42,10 +42,16 @@ echo "Timestamp: $(date)"
 echo "================================="
 echo ""
 
+# Create a temporary file for output
+TEMP_OUTPUT=$(mktemp)
+
 # Use expect to interact with the interactive console
 # This executes BOTH booking_load AND booking_book all
-expect << EOF
+expect << EOF > "$TEMP_OUTPUT" 2>&1
 set timeout 300
+
+# Disable terminal features that cause escape codes
+log_user 1
 
 # Start the interactive console
 spawn $CONSOLE_BINARY
@@ -94,8 +100,21 @@ send "exit\r"
 expect eof
 EOF
 
+EXIT_CODE=$?
+
+# Strip ANSI escape codes from output
+# This removes color codes, cursor movements, and bracketed paste mode codes
+if command -v sed &> /dev/null; then
+    sed -r "s/\x1B\[[0-9;]*[JKmsu]//g; s/\x1B\[?[0-9]*[hl]//g" "$TEMP_OUTPUT"
+else
+    cat "$TEMP_OUTPUT"
+fi
+
+# Clean up
+rm -f "$TEMP_OUTPUT"
+
 # Check exit status
-if [ $? -eq 0 ]; then
+if [ $EXIT_CODE -eq 0 ]; then
     echo ""
     echo "Console commands completed successfully!"
     echo "✓ booking_load $CSV_FILE"
