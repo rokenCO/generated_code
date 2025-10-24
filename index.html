@@ -501,6 +501,30 @@
         let commandHistory = [];
         let consoleCommandHistory = [];
         let autoRefreshInterval;
+        // ============================================
+        // ANSI Escape Code Stripping
+        // ============================================
+        
+        function stripAnsiCodes(text) {
+            // Remove ANSI escape sequences
+            // This handles color codes, cursor movements, and bracketed paste mode
+            return text
+                // Remove CSI sequences (most common)
+                .replace(/\x1B\[[0-9;]*[A-Za-z]/g, '')
+                // Remove OSC sequences
+                .replace(/\x1B\][^\x07]*\x07/g, '')
+                // Remove other escape sequences
+                .replace(/\x1B[=>]/g, '')
+                // Remove bracketed paste mode markers
+                .replace(/\x1B\[?[0-9]*[hl]/g, '')
+                // Remove any remaining ESC characters followed by single char
+                .replace(/\x1B./g, '');
+        }
+        
+        // ============================================
+        // Console Control Functions
+        // ============================================
+        
         let uploadedFile = null;
         let currentTab = 'task-admin';
 
@@ -753,11 +777,15 @@
                     outputText += '─'.repeat(60) + '\n\n';
                     
                     if (data.stdout) {
-                        outputText += 'STDOUT:\n' + data.stdout + '\n';
+                        // Strip ANSI codes from stdout
+                        const cleanStdout = stripAnsiCodes(data.stdout);
+                        outputText += 'STDOUT:\n' + cleanStdout + '\n';
                     }
                     
                     if (data.stderr) {
-                        outputText += '\nSTDERR:\n' + data.stderr;
+                        // Strip ANSI codes from stderr
+                        const cleanStderr = stripAnsiCodes(data.stderr);
+                        outputText += '\nSTDERR:\n' + cleanStderr;
                     }
                     
                     output.textContent = outputText;
@@ -908,11 +936,15 @@
                     outputText += '─'.repeat(60) + '\n\n';
                     
                     if (data.stdout) {
-                        outputText += 'STDOUT:\n' + data.stdout + '\n';
+                        // Strip ANSI codes from stdout
+                        const cleanStdout = stripAnsiCodes(data.stdout);
+                        outputText += 'STDOUT:\n' + cleanStdout + '\n';
                     }
                     
                     if (data.stderr) {
-                        outputText += '\nSTDERR:\n' + data.stderr;
+                        // Strip ANSI codes from stderr
+                        const cleanStderr = stripAnsiCodes(data.stderr);
+                        outputText += '\nSTDERR:\n' + cleanStderr;
                     }
                     
                     output.textContent = outputText;
