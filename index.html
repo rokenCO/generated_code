@@ -331,6 +331,208 @@
             cursor: not-allowed;
         }
     </style>
+    <style>
+    /* Corporate Actions Styles */
+    .ca-filters {
+        background: #f9f9f9;
+        padding: 20px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+    }
+
+    .filter-row {
+        display: flex;
+        gap: 20px;
+        align-items: flex-end;
+        flex-wrap: wrap;
+    }
+
+    .filter-group {
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .filter-group label {
+        font-size: 13px;
+        font-weight: 600;
+        color: #555;
+    }
+
+    .ca-summary {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 15px;
+        margin-bottom: 20px;
+    }
+
+    .summary-card {
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        padding: 20px;
+        border-radius: 8px;
+        text-align: center;
+    }
+
+    .summary-number {
+        font-size: 32px;
+        font-weight: bold;
+        margin-bottom: 5px;
+    }
+
+    .summary-label {
+        font-size: 13px;
+        opacity: 0.9;
+    }
+
+    .ca-table-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 15px;
+        padding-bottom: 10px;
+        border-bottom: 2px solid #e0e0e0;
+    }
+
+    .ca-table-wrapper {
+        overflow-x: auto;
+        border-radius: 8px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+
+    .ca-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+    }
+
+    .ca-table thead {
+        background: #f5f5f5;
+    }
+
+    .ca-table th {
+        padding: 12px;
+        text-align: left;
+        font-weight: 600;
+        color: #333;
+        border-bottom: 2px solid #e0e0e0;
+        font-size: 13px;
+        white-space: nowrap;
+    }
+
+    .ca-table td {
+        padding: 12px;
+        border-bottom: 1px solid #f0f0f0;
+        font-size: 13px;
+    }
+
+    .ca-table tbody tr:hover {
+        background: #f9f9f9;
+    }
+
+    .ca-type-badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        background: #e0e0e0;
+        color: #333;
+    }
+
+    .ca-type-badge.dividend {
+        background: #4caf50;
+        color: white;
+    }
+
+    .ca-type-badge.split {
+        background: #2196f3;
+        color: white;
+    }
+
+    .ca-type-badge.merger {
+        background: #ff9800;
+        color: white;
+    }
+
+    .ca-type-badge.rights {
+        background: #9c27b0;
+        color: white;
+    }
+
+    .days-badge {
+        display: inline-block;
+        padding: 3px 8px;
+        border-radius: 10px;
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .days-badge.urgent {
+        background: #ffebee;
+        color: #c62828;
+    }
+
+    .days-badge.soon {
+        background: #fff3e0;
+        color: #e65100;
+    }
+
+    .days-badge.upcoming {
+        background: #e8f5e9;
+        color: #2e7d32;
+    }
+
+    .booking-instruments-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 10px;
+        max-height: 300px;
+        overflow-y: auto;
+        padding: 10px;
+        background: #f9f9f9;
+        border-radius: 8px;
+    }
+
+    .booking-instrument-card {
+        background: white;
+        padding: 12px;
+        border-radius: 6px;
+        border-left: 3px solid #007acc;
+        font-size: 13px;
+    }
+
+    .booking-instrument-card .symbol {
+        font-weight: 600;
+        color: #333;
+        margin-bottom: 5px;
+    }
+
+    .booking-instrument-card .details {
+        color: #666;
+        font-size: 12px;
+    }
+
+    .ca-loading {
+        text-align: center;
+        padding: 40px;
+    }
+
+    .view-details-btn {
+        background: #007acc;
+        color: white;
+        border: none;
+        padding: 6px 12px;
+        border-radius: 4px;
+        font-size: 12px;
+        cursor: pointer;
+        transition: background 0.3s;
+    }
+
+    .view-details-btn:hover {
+        background: #005a9e;
+    }
+    </style>
 </head>
 <body>
     <div class="header">
@@ -494,6 +696,127 @@
         </div>
         <!-- End Console Control Tab -->
         {% endif %}
+        
+        <!-- Corporate Actions Tab -->
+        <div id="corporate-actions-tab" class="tab-content">
+            <h2 style="margin-top: 0;">📊 Bloomberg Corporate Actions</h2>
+            <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
+                View upcoming corporate actions for the next 7 days. Filter by instruments in current bookings.
+            </p>
+            
+            <!-- Filters -->
+            <div class="ca-filters">
+                <div class="filter-row">
+                    <div class="filter-group">
+                        <label for="daysAhead">📅 Days Ahead:</label>
+                        <select id="daysAhead" onchange="loadCorporateActions()">
+                            <option value="1">1 day</option>
+                            <option value="3">3 days</option>
+                            <option value="7" selected>7 days</option>
+                            <option value="14">14 days</option>
+                            <option value="30">30 days</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="caSearch">🔍 Search:</label>
+                        <input 
+                            type="text" 
+                            id="caSearch" 
+                            placeholder="Search ticker or company..."
+                            style="min-width: 250px;"
+                        >
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label>
+                            <input 
+                                type="checkbox" 
+                                id="bookingOnlyFilter" 
+                                onchange="loadCorporateActions()"
+                                style="width: auto; margin-right: 5px;"
+                            >
+                            📚 Booking Instruments Only
+                        </label>
+                    </div>
+                    
+                    <button 
+                        onclick="loadCorporateActions()" 
+                        style="background: #007acc; padding: 10px 20px; margin-left: auto;"
+                    >
+                        🔄 Refresh
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Summary Cards -->
+            <div id="caSummary" class="ca-summary" style="display: none;">
+                <div class="summary-card">
+                    <div class="summary-number" id="totalCAs">0</div>
+                    <div class="summary-label">Total Actions</div>
+                </div>
+                <div class="summary-card">
+                    <div class="summary-number" id="totalInstruments">0</div>
+                    <div class="summary-label">Affected Instruments</div>
+                </div>
+                <div class="summary-card" id="caTypesSummary">
+                    <div class="summary-label">CA Types</div>
+                    <div id="caTypesContent" style="font-size: 12px; margin-top: 5px;"></div>
+                </div>
+            </div>
+            
+            <!-- Loading / Status -->
+            <div id="caStatus" class="status" style="display: none;"></div>
+            <div id="caLoading" class="ca-loading" style="display: none;">
+                <div class="spinner" style="margin: 20px auto;"></div>
+                <p style="text-align: center; color: #666;">Loading corporate actions...</p>
+            </div>
+            
+            <!-- Results Table -->
+            <div id="caResultsContainer" style="display: none;">
+                <div class="ca-table-header">
+                    <h3 style="margin: 0;">Corporate Actions Results</h3>
+                    <button onclick="exportToCSV()" style="background: #4caf50; padding: 8px 16px; font-size: 13px;">
+                        📥 Export CSV
+                    </button>
+                </div>
+                
+                <div class="ca-table-wrapper">
+                    <table class="ca-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Days</th>
+                                <th>Ticker</th>
+                                <th>Company</th>
+                                <th>CA Type</th>
+                                <th>Currency</th>
+                                <th>Sector</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="caTableBody">
+                            <!-- Results populated by JavaScript -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- No Results Message -->
+            <div id="caNoResults" style="display: none; text-align: center; padding: 40px; color: #666;">
+                <div style="font-size: 48px; margin-bottom: 15px;">📊</div>
+                <h3>No Corporate Actions Found</h3>
+                <p>Try adjusting your filters or search criteria</p>
+            </div>
+            
+            <!-- Booking Instruments Panel (shown when filter is active) -->
+            <div id="bookingInstrumentsPanel" style="display: none; margin-top: 30px;">
+                <h3>📚 Instruments in Current Bookings (<span id="bookingInstrCount">0</span>)</h3>
+                <div class="booking-instruments-grid" id="bookingInstrumentsGrid">
+                    <!-- Populated by JavaScript -->
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -1108,6 +1431,292 @@
                 executeCommand();
             }
         });
+    </script>
+
+    <script>
+    // Corporate Actions JavaScript
+    let caData = [];
+    let bookingInstruments = [];
+    let searchTimeout = null;
+
+    // Add debounced search
+    document.getElementById('caSearch').addEventListener('input', function() {
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => {
+            loadCorporateActions();
+        }, 500);
+    });
+
+    async function loadCorporateActions() {
+        const daysAhead = document.getElementById('daysAhead').value;
+        const bookingOnly = document.getElementById('bookingOnlyFilter').checked;
+        const search = document.getElementById('caSearch').value.trim();
+        
+        // Show loading
+        document.getElementById('caLoading').style.display = 'block';
+        document.getElementById('caResultsContainer').style.display = 'none';
+        document.getElementById('caNoResults').style.display = 'none';
+        document.getElementById('caSummary').style.display = 'none';
+        document.getElementById('bookingInstrumentsPanel').style.display = 'none';
+        
+        try {
+            let url = `{{ base_path }}/api/ca/actions?days_ahead=${daysAhead}&booking_only=${bookingOnly}`;
+            if (search) {
+                url += `&search=${encodeURIComponent(search)}`;
+            }
+            
+            const response = await fetch(url);
+            
+            if (response.status === 401) {
+                window.location.href = '{{ base_path }}/login?next=' + encodeURIComponent(window.location.pathname);
+                return;
+            }
+            
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to load corporate actions');
+            }
+            
+            caData = data.actions;
+            bookingInstruments = data.booking_instruments;
+            
+            // Hide loading
+            document.getElementById('caLoading').style.display = 'none';
+            
+            if (caData.length === 0) {
+                document.getElementById('caNoResults').style.display = 'block';
+            } else {
+                renderCorporateActions(caData);
+                renderSummary(data);
+                document.getElementById('caResultsContainer').style.display = 'block';
+                document.getElementById('caSummary').style.display = 'grid';
+            }
+            
+            // Show booking instruments if filter is active
+            if (bookingOnly && bookingInstruments.length > 0) {
+                renderBookingInstruments(bookingInstruments);
+                document.getElementById('bookingInstrumentsPanel').style.display = 'block';
+            }
+            
+        } catch (error) {
+            document.getElementById('caLoading').style.display = 'none';
+            showCAStatus('Error: ' + error.message, 'error');
+        }
+    }
+
+    function renderCorporateActions(actions) {
+        const tbody = document.getElementById('caTableBody');
+        tbody.innerHTML = '';
+        
+        actions.forEach(ca => {
+            const row = document.createElement('tr');
+            
+            // Format date
+            const effDate = new Date(ca.effective_date);
+            const dateStr = effDate.toLocaleDateString();
+            
+            // Days until badge
+            const daysUntil = ca.days_until;
+            let daysBadgeClass = 'upcoming';
+            if (daysUntil <= 1) daysBadgeClass = 'urgent';
+            else if (daysUntil <= 3) daysBadgeClass = 'soon';
+            
+            // CA type badge
+            const caTypeClass = getCATypeClass(ca.ca_type);
+            
+            row.innerHTML = `
+                <td>${dateStr}</td>
+                <td><span class="days-badge ${daysBadgeClass}">${daysUntil}d</span></td>
+                <td><strong>${ca.ticker || 'N/A'}</strong></td>
+                <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" 
+                    title="${ca.company_name || 'N/A'}">
+                    ${ca.company_name || 'N/A'}
+                </td>
+                <td>
+                    <span class="ca-type-badge ${caTypeClass}">
+                        ${getCATypeDescription(ca.ca_type)}
+                    </span>
+                </td>
+                <td>${ca.currency || '-'}</td>
+                <td style="max-width: 150px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                    title="${ca.sector || 'N/A'}">
+                    ${ca.sector || '-'}
+                </td>
+                <td>
+                    <button 
+                        class="view-details-btn" 
+                        onclick="viewCADetails('${ca.action_id}', '${ca.ticker}')"
+                    >
+                        📋 Details
+                    </button>
+                </td>
+            `;
+            
+            tbody.appendChild(row);
+        });
+    }
+
+    function renderSummary(data) {
+        document.getElementById('totalCAs').textContent = data.total;
+        
+        // Count unique instruments
+        const uniqueInstruments = new Set(data.actions.map(ca => ca.ticker)).size;
+        document.getElementById('totalInstruments').textContent = uniqueInstruments;
+        
+        // Render CA types summary
+        const caTypesContent = document.getElementById('caTypesContent');
+        const summary = data.ca_type_summary || {};
+        const topTypes = Object.entries(summary)
+            .sort((a, b) => b[1] - a[1])
+            .slice(0, 5);
+        
+        if (topTypes.length > 0) {
+            caTypesContent.innerHTML = topTypes
+                .map(([type, count]) => `${getCATypeDescription(type)}: ${count}`)
+                .join('<br>');
+        } else {
+            caTypesContent.innerHTML = 'No data';
+        }
+    }
+
+    function renderBookingInstruments(instruments) {
+        const grid = document.getElementById('bookingInstrumentsGrid');
+        const count = document.getElementById('bookingInstrCount');
+        
+        count.textContent = instruments.length;
+        grid.innerHTML = '';
+        
+        instruments.forEach(instr => {
+            const card = document.createElement('div');
+            card.className = 'booking-instrument-card';
+            card.innerHTML = `
+                <div class="symbol">${instr.symbol}</div>
+                <div class="details">
+                    ID: ${instr.instr_id}<br>
+                    Bookings: ${instr.booking_count}<br>
+                    Qty: ${instr.total_quantity ? instr.total_quantity.toFixed(2) : '0'}
+                </div>
+            `;
+            grid.appendChild(card);
+        });
+    }
+
+    function getCATypeClass(mnemonic) {
+        const typeMap = {
+            'DIV': 'dividend',
+            'SPL': 'split',
+            'M&A': 'merger',
+            'RTS': 'rights'
+        };
+        return typeMap[mnemonic] || '';
+    }
+
+    function getCATypeDescription(mnemonic) {
+        const descriptions = {
+            'DIV': 'Dividend',
+            'SPL': 'Stock Split',
+            'M&A': 'Merger & Acquisition',
+            'RTS': 'Rights Issue',
+            'SPO': 'Spin-off',
+            'BYB': 'Buyback',
+            'CAP': 'Capital Change',
+            'CVR': 'Conversion',
+            'RED': 'Redemption',
+            'MAT': 'Maturity',
+            'CAL': 'Call',
+            'PUT': 'Put',
+            'TND': 'Tender',
+            'EXC': 'Exchange',
+            'INT': 'Interest',
+            'DEF': 'Defeasance',
+            'BKR': 'Bankruptcy',
+            'LIQ': 'Liquidation'
+        };
+        return descriptions[mnemonic] || mnemonic;
+    }
+
+    async function viewCADetails(actionId, ticker) {
+        try {
+            const response = await fetch(`{{ base_path }}/api/ca/actions/${actionId}?ticker=${encodeURIComponent(ticker)}`);
+            const data = await response.json();
+            
+            if (!response.ok) {
+                throw new Error(data.error || 'Failed to load details');
+            }
+            
+            // Create modal or detailed view
+            alert(JSON.stringify(data, null, 2)); // Simple alert for now
+            // TODO: Create a proper modal dialog
+            
+        } catch (error) {
+            showCAStatus('Error loading details: ' + error.message, 'error');
+        }
+    }
+
+    function exportToCSV() {
+        if (caData.length === 0) {
+            showCAStatus('No data to export', 'error');
+            return;
+        }
+        
+        // CSV headers
+        const headers = ['Date', 'Days Until', 'Ticker', 'Company', 'CA Type', 'Currency', 'Sector', 'Action ID'];
+        
+        // CSV rows
+        const rows = caData.map(ca => [
+            ca.effective_date,
+            ca.days_until,
+            ca.ticker || '',
+            (ca.company_name || '').replace(/,/g, ';'), // Replace commas
+            ca.ca_type || '',
+            ca.currency || '',
+            (ca.sector || '').replace(/,/g, ';'),
+            ca.action_id || ''
+        ]);
+        
+        // Build CSV
+        const csv = [
+            headers.join(','),
+            ...rows.map(row => row.join(','))
+        ].join('\n');
+        
+        // Download
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `corporate_actions_${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        
+        showCAStatus('CSV exported successfully', 'success');
+    }
+
+    function showCAStatus(message, type) {
+        const status = document.getElementById('caStatus');
+        status.textContent = message;
+        status.className = `status ${type}`;
+        status.style.display = 'block';
+        
+        setTimeout(() => {
+            status.style.display = 'none';
+        }, 5000);
+    }
+
+    // Auto-load on tab switch
+    document.addEventListener('DOMContentLoaded', function() {
+        const caTabBtn = document.querySelector('[onclick*="corporate-actions"]');
+        if (caTabBtn) {
+            caTabBtn.addEventListener('click', function() {
+                if (caData.length === 0) {
+                    loadCorporateActions();
+                }
+            });
+        }
+    });
     </script>
 </body>
 </html>
