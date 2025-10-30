@@ -2,6 +2,7 @@
 """
 Corporate Actions Database Module
 Handles queries for Bloomberg corporate actions data
+WITH SCHEMA-QUALIFIED TABLE NAMES
 """
 
 import psycopg2
@@ -50,8 +51,8 @@ class CADatabase:
             instr_id,
             COUNT(*) as booking_count,
             SUM(quantity) as total_quantity
-        FROM booking_leg
-        WHERE to_ts > CURRENT_TIMESTAMP  -- Only active bookings
+        FROM pks.booking_leg
+        WHERE to_ts > CURRENT_TIMESTAMP
         GROUP BY instr_id
         ORDER BY booking_count DESC
         """
@@ -90,7 +91,7 @@ class CADatabase:
                 from_ts,
                 to_ts,
                 ROW_NUMBER() OVER (PARTITION BY id ORDER BY to_ts DESC) as rn
-            FROM symbol
+            FROM pds.symbol
             WHERE id = ANY(%s)
               AND to_ts > CURRENT_TIMESTAMP
         )
@@ -155,7 +156,6 @@ class CADatabase:
             bc.bcflag as flag,
             bc.bcsecidtype as sec_id_type,
             bc.bcsecid as sec_id,
-            -- Get days until effective date
             bc.bceffdate - CURRENT_DATE as days_until
         FROM fost.bloomberg_cax_2025 bc
         WHERE {where_clause}
