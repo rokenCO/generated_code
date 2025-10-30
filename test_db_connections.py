@@ -41,52 +41,52 @@ DB_CONFIGS = {
     }
 }
 
-# Required tables for each database
+# Required tables for each database (schema-qualified)
 REQUIRED_TABLES = {
-    'PKS': ['booking_leg'],
-    'PDS': ['symbol'],
-    'FOST': ['bloomberg_cax_2025', 'bloomberg_varfields_2025']
+    'PKS': ['pks.booking_leg'],
+    'PDS': ['pds.symbol'],
+    'FOST': ['fost.bloomberg_cax_2025', 'fost.bloomberg_varfields_2025']
 }
 
-# Test queries for each database
+# Test queries for each database (with schema-qualified table names)
 TEST_QUERIES = {
     'PKS': {
         'active_bookings': """
             SELECT COUNT(*) as count 
-            FROM booking_leg 
+            FROM pks.booking_leg 
             WHERE to_ts > CURRENT_TIMESTAMP
         """,
         'unique_instruments': """
             SELECT COUNT(DISTINCT instr_id) as count 
-            FROM booking_leg 
+            FROM pks.booking_leg 
             WHERE to_ts > CURRENT_TIMESTAMP
         """
     },
     'PDS': {
         'total_symbols': """
             SELECT COUNT(*) as count 
-            FROM symbol 
+            FROM pds.symbol 
             WHERE to_ts > CURRENT_TIMESTAMP
         """,
         'unique_instruments': """
             SELECT COUNT(DISTINCT id) as count 
-            FROM symbol 
+            FROM pds.symbol 
             WHERE to_ts > CURRENT_TIMESTAMP
         """
     },
     'FOST': {
         'total_cas': """
             SELECT COUNT(*) as count 
-            FROM bloomberg_cax_2025
+            FROM fost.bloomberg_cax_2025
         """,
         'future_cas': """
             SELECT COUNT(*) as count 
-            FROM bloomberg_cax_2025 
+            FROM fost.bloomberg_cax_2025 
             WHERE bceffdate >= CURRENT_DATE
         """,
         'ca_types': """
             SELECT bcmnemonic, COUNT(*) as count 
-            FROM bloomberg_cax_2025 
+            FROM fost.bloomberg_cax_2025 
             WHERE bceffdate >= CURRENT_DATE 
             GROUP BY bcmnemonic 
             ORDER BY count DESC 
@@ -254,7 +254,7 @@ def test_data_flow():
         with conns['PKS'].cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT instr_id, COUNT(*) as booking_count
-                FROM booking_leg
+                FROM pks.booking_leg
                 WHERE to_ts > CURRENT_TIMESTAMP
                 GROUP BY instr_id
                 ORDER BY COUNT(*) DESC
@@ -277,7 +277,7 @@ def test_data_flow():
         with conns['PDS'].cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT id, code, symbol_type_id
-                FROM symbol
+                FROM pds.symbol
                 WHERE id = %s AND to_ts > CURRENT_TIMESTAMP
                 ORDER BY to_ts DESC
                 LIMIT 1
@@ -304,7 +304,7 @@ def test_data_flow():
                     bcmnemonic,
                     bceffdate,
                     bceffdate - CURRENT_DATE as days_until
-                FROM bloomberg_cax_2025
+                FROM fost.bloomberg_cax_2025
                 WHERE bcticker_exch_code = %s
                   AND bceffdate >= CURRENT_DATE
                 ORDER BY bceffdate
