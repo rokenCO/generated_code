@@ -297,37 +297,43 @@ def prepare_flask_request(request):
     
     # Use configured values to build the correct URL
     if hasattr(Config, 'WEB_PROXY_ALIAS') and Config.WEB_PROXY_ALIAS:
-        # Parse the public URL
+        # Parse the public URL to extract components
         from urllib.parse import urlparse
         parsed = urlparse(Config.WEB_PROXY_ALIAS)
         
-        # Determine if HTTPS based on configured URL
+        # Determine protocol (HTTPS vs HTTP)
         is_https = parsed.scheme == 'https'
         
-        # Get host from configured URL (without port)
+        # Extract host and port from the configured URL
+        # netloc includes both: "staging.echonet" or "staging.echonet:8443"
         public_host = parsed.netloc
         
-        # Determine port from scheme if not in netloc
+        # Check if a non-standard port is specified in the URL
         if ':' in public_host:
-            # Port is explicitly in the URL
-            public_port = public_host.split(':')[1]
-            public_host = public_host.split(':')[0]
+            # Port explicitly specified: https://example.com:8443
+            # Extract port and remove it from host
+            public_host, public_port = public_host.split(':', 1)
         else:
-            # Use standard ports
+            # No port specified: https://example.com
+            # Use standard ports that browsers assume:
+            # - HTTPS uses port 443 (browsers don't show it in URLs)
+            # - HTTP uses port 80 (browsers don't show it in URLs)
             public_port = '443' if is_https else '80'
         
+        # Build the request object for SAML library
+        # This tells the SAML library what PUBLIC URL to expect/generate
         return {
             'https': 'on' if is_https else 'off',
-            'http_host': public_host,
-            'server_port': public_port,
+            'http_host': public_host,           # e.g., "staging.echonet"
+            'server_port': public_port,         # e.g., "443" for standard HTTPS
             'script_name': Config.APP_BASE_PATH if hasattr(Config, 'APP_BASE_PATH') else '',
             'get_data': request.args.copy(),
             'post_data': request.form.copy(),
             'query_string': request.query_string.decode('utf-8')
         }
     else:
-        # Fallback to request headers (original behavior)
-        # This works if app is directly accessible without reverse proxy
+        # Fallback: No WEB_PROXY_ALIAS configured
+        # Try to use request headers (works if app is directly accessible)
         return {
             'https': 'on' if request.scheme == 'https' else 'off',
             'http_host': request.host,
@@ -494,10 +500,44 @@ def saml_acs():
     
     auth = init_saml_auth(req)
     
+    # Log the expected Entity ID
+    try:
+        settings = auth.get_settings()
+        expected_entity_id = settings.get_sp_data().get('entityId')
+        logger.info(f"  - Expected Entity ID (Audience): {expected_entity_id}")
+    except Exception as e:
+        logger.warning(f"Could not get expected Entity ID: {e}")
+    
     try:
         auth.process_response()
     except Exception as e:
         logger.error(f"SAML response processing exception: {e}", exc_info=True)
+        
+        # Try to extract Audience from the raw response for debugging
+        try:
+            import xml.etree.ElementTree as ET
+            saml_response = request.form.get('SAMLResponse', '')
+            if saml_response:
+                import base64
+                decoded = base64.b64decode(saml_response)
+                logger.info(f"Raw SAML Response (first 500 chars): {decoded[:500]}")
+                
+                # Try to parse and find Audience
+                root = ET.fromstring(decoded)
+                namespaces = {
+                    'saml': 'urn:oasis:names:tc:SAML:2.0:assertion',
+                    'samlp': 'urn:oasis:names:tc:SAML:2.0:protocol'
+                }
+                audiences = root.findall('.//saml:Audience', namespaces)
+                if audiences:
+                    logger.info(f"  - Audience(s) in SAML Response:")
+                    for aud in audiences:
+                        logger.info(f"    - {aud.text}")
+                else:
+                    logger.warning("  - No Audience found in SAML Response")
+        except Exception as parse_error:
+            logger.error(f"Could not parse SAML response for debugging: {parse_error}")
+        
         return f"SSO Authentication failed: {str(e)}", 400
     
     errors = auth.get_errors()
@@ -648,6 +688,126 @@ def saml_acs():
         
         return f"SSO Authentication failed: {error_reason}", 400
 
+
+
+@app.route('/saml/info')
+def saml_info():
+    """Show SAML configuration info in human-readable format"""
+    if not SAML_ENABLED:
+        return """
+        <html>
+        <head><title>SAML Not Enabled</title></head>
+        <body>
+        <h1>❌ SAML SSO is NOT ENABLED</h1>
+        <p>Check your configuration and application logs.</p>
+        <p><a href="/saml/debug">/saml/debug</a> for JSON details</p>
+        </body>
+        </html>
+        """, 503
+    
+    try:
+        from saml_config import get_saml_settings
+        settings = get_saml_settings()
+        
+        entity_id = settings['sp']['entityId']
+        acs_url = settings['sp']['assertionConsumerService']['url']
+        sls_url = settings['sp']['singleLogoutService']['url']
+        
+        html = f"""
+        <html>
+        <head>
+            <title>SAML Configuration</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 40px; }}
+                .box {{ background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 5px; }}
+                .success {{ background: #d4edda; border-left: 4px solid #28a745; }}
+                .warning {{ background: #fff3cd; border-left: 4px solid #ffc107; }}
+                code {{ background: #e9ecef; padding: 2px 6px; border-radius: 3px; }}
+                h2 {{ color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }}
+                .copy-btn {{ margin-left: 10px; padding: 5px 10px; cursor: pointer; }}
+            </style>
+        </head>
+        <body>
+            <h1>✅ SAML SSO Configuration</h1>
+            
+            <div class="box success">
+                <h2>Your Service Provider (SP) Details</h2>
+                <p><strong>Entity ID (Audience):</strong><br>
+                <code id="entity-id">{entity_id}</code>
+                <button class="copy-btn" onclick="copyToClipboard('entity-id')">📋 Copy</button>
+                </p>
+                
+                <p><strong>ACS URL (where IdP sends response):</strong><br>
+                <code id="acs-url">{acs_url}</code>
+                <button class="copy-btn" onclick="copyToClipboard('acs-url')">📋 Copy</button>
+                </p>
+                
+                <p><strong>SLS URL (single logout):</strong><br>
+                <code id="sls-url">{sls_url}</code>
+                <button class="copy-btn" onclick="copyToClipboard('sls-url')">📋 Copy</button>
+                </p>
+            </div>
+            
+            <div class="box warning">
+                <h2>⚠️ Important for SSO Team</h2>
+                <p>Your IdP <strong>MUST</strong> be configured with:</p>
+                <ul>
+                    <li><strong>Entity ID:</strong> <code>{entity_id}</code> (EXACT match, case-sensitive)</li>
+                    <li><strong>ACS URL:</strong> <code>{acs_url}</code></li>
+                    <li><strong>SAML Response Audience:</strong> Must be <code>{entity_id}</code></li>
+                    <li><strong>NameID:</strong> Send username (we don't need attributes)</li>
+                </ul>
+            </div>
+            
+            <div class="box">
+                <h2>📥 Download Your SP Metadata</h2>
+                <p>Send this file to your SSO team:</p>
+                <p><a href="/saml/metadata" target="_blank">Download SP Metadata XML</a></p>
+                <p><small>Right-click → Save as → sp-metadata.xml</small></p>
+            </div>
+            
+            <div class="box">
+                <h2>🔧 Configuration Check</h2>
+                <p><strong>WEB_PROXY_ALIAS:</strong> {Config.WEB_PROXY_ALIAS if hasattr(Config, 'WEB_PROXY_ALIAS') else 'NOT SET'}</p>
+                <p><strong>APP_BASE_PATH:</strong> {Config.APP_BASE_PATH if hasattr(Config, 'APP_BASE_PATH') else 'NOT SET'}</p>
+                <p><strong>SAML_ACS_PATH:</strong> {Config.SAML_ACS_PATH if hasattr(Config, 'SAML_ACS_PATH') else 'NOT SET'}</p>
+            </div>
+            
+            <div class="box">
+                <h2>🧪 Test SAML Login</h2>
+                <p><a href="/saml/login">Click here to test SAML SSO login</a></p>
+                <p><small>This will redirect you to your IdP for authentication</small></p>
+            </div>
+            
+            <div class="box">
+                <h2>📊 Debug Information</h2>
+                <p><a href="/saml/debug">JSON Debug Output</a> - Technical details</p>
+                <p><a href="/debug-proxy">Proxy Configuration</a> - Proxy setup details</p>
+            </div>
+            
+            <script>
+                function copyToClipboard(elementId) {{
+                    const text = document.getElementById(elementId).textContent;
+                    navigator.clipboard.writeText(text).then(() => {{
+                        alert('Copied to clipboard: ' + text);
+                    }});
+                }}
+            </script>
+        </body>
+        </html>
+        """
+        return html
+    except Exception as e:
+        return f"""
+        <html>
+        <head><title>SAML Configuration Error</title></head>
+        <body>
+        <h1>❌ Error Loading SAML Configuration</h1>
+        <p>{str(e)}</p>
+        <p><a href="/saml/debug">/saml/debug</a> for more details</p>
+        </body>
+        </html>
+        """, 500
 
 
 @app.route('/saml/metadata')
