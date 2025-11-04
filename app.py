@@ -292,15 +292,51 @@ def check_user_permissions(roles):
 
 def prepare_flask_request(request):
     """Prepare request for SAML (handle proxy setup)"""
-    return {
-        'https': 'on' if request.scheme == 'https' else 'off',
-        'http_host': request.host,
-        'server_port': request.environ.get('SERVER_PORT', '443' if request.scheme == 'https' else '80'),
-        'script_name': Config.APP_BASE_PATH if hasattr(Config, 'APP_BASE_PATH') else '',
-        'get_data': request.args.copy(),
-        'post_data': request.form.copy(),
-        'query_string': request.query_string.decode('utf-8')
-    }
+    # When behind a reverse proxy, we need to use the configured public URL
+    # instead of the internal request URL that Flask sees
+    
+    # Use configured values to build the correct URL
+    if hasattr(Config, 'WEB_PROXY_ALIAS') and Config.WEB_PROXY_ALIAS:
+        # Parse the public URL
+        from urllib.parse import urlparse
+        parsed = urlparse(Config.WEB_PROXY_ALIAS)
+        
+        # Determine if HTTPS based on configured URL
+        is_https = parsed.scheme == 'https'
+        
+        # Get host from configured URL (without port)
+        public_host = parsed.netloc
+        
+        # Determine port from scheme if not in netloc
+        if ':' in public_host:
+            # Port is explicitly in the URL
+            public_port = public_host.split(':')[1]
+            public_host = public_host.split(':')[0]
+        else:
+            # Use standard ports
+            public_port = '443' if is_https else '80'
+        
+        return {
+            'https': 'on' if is_https else 'off',
+            'http_host': public_host,
+            'server_port': public_port,
+            'script_name': Config.APP_BASE_PATH if hasattr(Config, 'APP_BASE_PATH') else '',
+            'get_data': request.args.copy(),
+            'post_data': request.form.copy(),
+            'query_string': request.query_string.decode('utf-8')
+        }
+    else:
+        # Fallback to request headers (original behavior)
+        # This works if app is directly accessible without reverse proxy
+        return {
+            'https': 'on' if request.scheme == 'https' else 'off',
+            'http_host': request.host,
+            'server_port': request.environ.get('SERVER_PORT', '443' if request.scheme == 'https' else '80'),
+            'script_name': Config.APP_BASE_PATH if hasattr(Config, 'APP_BASE_PATH') else '',
+            'get_data': request.args.copy(),
+            'post_data': request.form.copy(),
+            'query_string': request.query_string.decode('utf-8')
+        }
 
 def init_saml_auth(req):
     """Initialize SAML auth with settings"""
@@ -447,6 +483,15 @@ def saml_acs():
         return "SSO is not enabled", 403
     
     req = prepare_flask_request(request)
+    
+    # Log the URL information for debugging
+    logger.info(f"SAML ACS called - Request details:")
+    logger.info(f"  - HTTPS: {req['https']}")
+    logger.info(f"  - Host: {req['http_host']}")
+    logger.info(f"  - Port: {req['server_port']}")
+    logger.info(f"  - Script Name: {req['script_name']}")
+    logger.info(f"  - Expected ACS URL: https://{req['http_host']}{req['script_name']}/saml/acs")
+    
     auth = init_saml_auth(req)
     
     try:
@@ -629,7 +674,8 @@ def saml_debug():
     debug_info = {
         'saml_enabled': SAML_ENABLED,
         'saml_config_issues': saml_config_issues if not SAML_ENABLED else [],
-        'config_values': {}
+        'config_values': {},
+        'url_construction': {}
     }
     
     # Check each config value
@@ -652,15 +698,36 @@ def saml_debug():
         else:
             debug_info['config_values'][key] = 'NOT SET'
     
-    # If SAML is enabled, show the ACS URL
+    # Show how URLs will be constructed
+    if hasattr(Config, 'WEB_PROXY_ALIAS') and Config.WEB_PROXY_ALIAS:
+        from urllib.parse import urlparse
+        parsed = urlparse(Config.WEB_PROXY_ALIAS)
+        
+        debug_info['url_construction'] = {
+            'web_proxy_alias': Config.WEB_PROXY_ALIAS,
+            'parsed_scheme': parsed.scheme,
+            'parsed_netloc': parsed.netloc,
+            'app_base_path': getattr(Config, 'APP_BASE_PATH', ''),
+            'saml_acs_path': getattr(Config, 'SAML_ACS_PATH', '/saml/acs'),
+            'constructed_acs_url': f"{Config.WEB_PROXY_ALIAS}{getattr(Config, 'APP_BASE_PATH', '')}{getattr(Config, 'SAML_ACS_PATH', '/saml/acs')}"
+        }
+    
+    # If SAML is enabled, show the settings
     if SAML_ENABLED:
         try:
             from saml_config import get_saml_settings
             settings = get_saml_settings()
-            debug_info['acs_url'] = settings['sp']['assertionConsumerService']['url']
-            debug_info['entity_id'] = settings['sp']['entityId']
-            debug_info['idp_entity_id'] = settings['idp']['entityId']
-            debug_info['idp_sso_url'] = settings['idp']['singleSignOnService']['url']
+            debug_info['saml_settings'] = {
+                'acs_url': settings['sp']['assertionConsumerService']['url'],
+                'entity_id': settings['sp']['entityId'],
+                'idp_entity_id': settings['idp']['entityId'],
+                'idp_sso_url': settings['idp']['singleSignOnService']['url'],
+                'security': {
+                    'wantAttributeStatement': settings['security']['wantAttributeStatement'],
+                    'wantAssertionsSigned': settings['security']['wantAssertionsSigned'],
+                    'wantNameId': settings['security']['wantNameId']
+                }
+            }
         except Exception as e:
             debug_info['settings_error'] = str(e)
     
