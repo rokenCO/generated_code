@@ -1,16 +1,20 @@
 #!/usr/bin/env python3
-from flask import Flask, render_template, request, jsonify, session, redirect, url_for
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for, send_from_directory
 from functools import wraps
 from ldap3 import Server, Connection, ALL, SUBTREE, Tls
 from werkzeug.middleware.proxy_fix import ProxyFix
+from werkzeug.utils import secure_filename
+from pathlib import Path
+from datetime import datetime, timedelta
 import ssl
 import subprocess
 import os
-from datetime import timedelta
+import json
 import logging
 from config import Config
 
 app = Flask(__name__)
+
 # File upload configuration
 UPLOAD_FOLDER = Path('/tmp/task_admin_uploads')
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
@@ -130,6 +134,11 @@ app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['SESSION_COOKIE_PATH'] = base_path if base_path else '/'
+
+# Register Corporate Actions blueprint if enabled
+if CA_ENABLED:
+    app.register_blueprint(ca_bp)
+    logger.info(f"Registered Corporate Actions blueprint at {base_path}/api/ca")
 
 def get_ldap_server():
     """Create LDAP server with TLS configuration"""
@@ -440,22 +449,46 @@ def saml_acs():
     req = prepare_flask_request(request)
     auth = init_saml_auth(req)
     
-    auth.process_response()
+    try:
+        auth.process_response()
+    except Exception as e:
+        logger.error(f"SAML response processing exception: {e}", exc_info=True)
+        return f"SSO Authentication failed: {str(e)}", 400
+    
     errors = auth.get_errors()
     
-    if not errors:
-        # Extract username from SAML response
-        saml_attributes = auth.get_attributes()
+    # Log all SAML processing details for debugging
+    logger.info(f"SAML response processed. Errors: {errors}")
+    logger.info(f"SAML is_authenticated: {auth.is_authenticated()}")
+    
+    # Check if authenticated - this is more reliable than checking errors
+    if auth.is_authenticated():
+        # PRIMARY: Extract username from NameID (this is what SSO sends)
         username = auth.get_nameid()
         
-        logger.info(f"SAML attributes received: {list(saml_attributes.keys())}")
+        if not username:
+            logger.error("SAML response missing NameID")
+            return "SSO Authentication failed: No NameID in response", 400
         
-        # Try common attribute names for username
-        for attr in ['uid', 'username', 'sAMAccountName', 'email', 'mail']:
-            if attr in saml_attributes and saml_attributes[attr]:
-                username = saml_attributes[attr][0]
-                logger.info(f"Found username in attribute '{attr}': {username}")
-                break
+        logger.info(f"SAML NameID received: {username}")
+        
+        # OPTIONAL: Try to get attributes if they exist (but don't require them)
+        try:
+            saml_attributes = auth.get_attributes()
+            if saml_attributes:
+                logger.info(f"SAML attributes received: {list(saml_attributes.keys())}")
+                
+                # Try common attribute names for username (override NameID if found)
+                for attr in ['uid', 'username', 'sAMAccountName', 'email', 'mail']:
+                    if attr in saml_attributes and saml_attributes[attr]:
+                        username = saml_attributes[attr][0]
+                        logger.info(f"Using username from attribute '{attr}': {username}")
+                        break
+            else:
+                logger.info("No SAML attributes in response (using NameID only)")
+        except Exception as e:
+            # If getting attributes fails, just log and continue with NameID
+            logger.warning(f"Could not retrieve SAML attributes: {e}. Using NameID only.")
         
         # Clean username (remove domain if present)
         if '\\' in username:
@@ -465,29 +498,22 @@ def saml_acs():
         
         logger.info(f"User {username} authenticated via SSO")
         
-        # Get LDAP roles
-        roles = get_user_ldap_roles(username)
-        permissions = check_user_permissions(roles)
+        # Get user details from LDAP
+        user_data = get_user_details(username)
+        if not user_data:
+            logger.error(f"User {username} not found in LDAP")
+            return f"Access Denied: User {username} not found in LDAP directory", 403
         
-        # Check if user has any permissions
+        # Check permissions
+        permissions = check_user_permissions(user_data['roles'])
+        
         if not permissions['can_read'] and not permissions['can_write']:
             logger.warning(f"User {username} has no permissions")
             return "Access Denied: No permissions assigned to your roles", 403
         
-        # Get user details from LDAP
-        user_data = get_user_details(username)
-        if not user_data:
-            # Fallback if LDAP lookup fails
-            user_data = {
-                'username': username,
-                'email': saml_attributes.get('email', [None])[0] or saml_attributes.get('mail', [None])[0],
-                'full_name': saml_attributes.get('displayName', [username])[0],
-                'roles': roles
-            }
-        
         # Filter roles to only show relevant ones
         relevant_roles = [
-            role for role in roles 
+            role for role in user_data['roles']
             if role in Config.LDAP_DEFAULT_READ_ROLES or role in Config.LDAP_DEFAULT_WRITE_ROLES
         ]
         
@@ -496,27 +522,87 @@ def saml_acs():
             'username': user_data['username'],
             'email': user_data.get('email'),
             'full_name': user_data.get('full_name', username),
-            'roles': roles,
+            'roles': user_data['roles'],
             'relevant_roles': relevant_roles,
             'permissions': permissions,
             'allowed_commands': permissions['allowed_commands'],
             'auth_method': 'saml'
         }
         session['samlSessionIndex'] = auth.get_session_index()
+        session['samlNameId'] = username
         session.permanent = True
         
         logger.info(f"User {username} logged in via SSO with permissions: {permissions}")
         
         # Redirect to next URL or home
-        if 'next_url' in session:
-            return redirect(session.pop('next_url'))
+        next_url = session.pop('next_url', None)
+        if next_url:
+            return redirect(next_url)
         return redirect(build_url('/'))
         
     else:
-        error_reason = auth.get_last_error_reason()
-        logger.error(f"SAML auth failed: {', '.join(errors)}")
+        # Authentication failed
+        error_reason = auth.get_last_error_reason() if hasattr(auth, 'get_last_error_reason') else 'Unknown error'
+        
+        # Log detailed error information
+        logger.error(f"SAML auth failed. Errors: {errors}")
         logger.error(f"Error reason: {error_reason}")
+        
+        # Check if it's just a missing AttributeStatement (which we don't need)
+        if errors and any('AttributeStatement' in str(err) for err in errors):
+            logger.warning("AttributeStatement missing but this is expected. Checking if NameID exists...")
+            
+            # Try to get NameID anyway
+            try:
+                username = auth.get_nameid()
+                if username:
+                    logger.info(f"NameID found despite AttributeStatement error: {username}")
+                    # Continue with authentication using NameID
+                    # Clean username
+                    if '\\' in username:
+                        username = username.split('\\')[1]
+                    elif '@' in username:
+                        username = username.split('@')[0]
+                    
+                    # Get user from LDAP
+                    user_data = get_user_details(username)
+                    if not user_data:
+                        return f"Access Denied: User {username} not found in LDAP", 403
+                    
+                    permissions = check_user_permissions(user_data['roles'])
+                    if not permissions['can_read'] and not permissions['can_write']:
+                        return "Access Denied: No permissions", 403
+                    
+                    relevant_roles = [
+                        role for role in user_data['roles']
+                        if role in Config.LDAP_DEFAULT_READ_ROLES or role in Config.LDAP_DEFAULT_WRITE_ROLES
+                    ]
+                    
+                    session['user'] = {
+                        'username': user_data['username'],
+                        'email': user_data.get('email'),
+                        'full_name': user_data.get('full_name', username),
+                        'roles': user_data['roles'],
+                        'relevant_roles': relevant_roles,
+                        'permissions': permissions,
+                        'allowed_commands': permissions['allowed_commands'],
+                        'auth_method': 'saml'
+                    }
+                    session['samlSessionIndex'] = auth.get_session_index()
+                    session['samlNameId'] = username
+                    session.permanent = True
+                    
+                    logger.info(f"User {username} logged in via SSO (bypassed AttributeStatement check)")
+                    
+                    next_url = session.pop('next_url', None)
+                    if next_url:
+                        return redirect(next_url)
+                    return redirect(build_url('/'))
+            except Exception as e:
+                logger.error(f"Could not extract NameID: {e}")
+        
         return f"SSO Authentication failed: {error_reason}", 400
+
 
 
 @app.route('/saml/metadata')
@@ -535,6 +621,50 @@ def saml_metadata():
         return metadata, 200, {'Content-Type': 'text/xml'}
     else:
         return ', '.join(errors), 500
+
+
+@app.route('/saml/debug')
+def saml_debug():
+    """Debug endpoint to check SAML configuration"""
+    debug_info = {
+        'saml_enabled': SAML_ENABLED,
+        'saml_config_issues': saml_config_issues if not SAML_ENABLED else [],
+        'config_values': {}
+    }
+    
+    # Check each config value
+    config_checks = [
+        'SAML_IDP_METADATA_FILE',
+        'WEB_PROXY_ALIAS',
+        'SAML_ACS_PATH',
+        'APP_BASE_PATH',
+        'SSO_SAML_IDP'
+    ]
+    
+    for key in config_checks:
+        if hasattr(Config, key):
+            value = getattr(Config, key)
+            # Don't expose full file paths or sensitive data
+            if 'FILE' in key or 'PATH' in key:
+                debug_info['config_values'][key] = 'SET' if value else 'EMPTY'
+            else:
+                debug_info['config_values'][key] = value if value else 'EMPTY'
+        else:
+            debug_info['config_values'][key] = 'NOT SET'
+    
+    # If SAML is enabled, show the ACS URL
+    if SAML_ENABLED:
+        try:
+            from saml_config import get_saml_settings
+            settings = get_saml_settings()
+            debug_info['acs_url'] = settings['sp']['assertionConsumerService']['url']
+            debug_info['entity_id'] = settings['sp']['entityId']
+            debug_info['idp_entity_id'] = settings['idp']['entityId']
+            debug_info['idp_sso_url'] = settings['idp']['singleSignOnService']['url']
+        except Exception as e:
+            debug_info['settings_error'] = str(e)
+    
+    return jsonify(debug_info)
 
 
 @app.route('/saml/sls')

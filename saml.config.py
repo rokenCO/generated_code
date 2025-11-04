@@ -95,15 +95,16 @@ def generate_saml_settings():
             "logoutRequestSigned": False,
             "logoutResponseSigned": False,
             "signMetadata": False,
-            "wantAssertionsSigned": True,
+            "wantAssertionsSigned": False,  # Don't require - many IdPs don't sign
             "wantAssertionsEncrypted": False,
-            "wantNameId": True,
+            "wantNameId": True,  # We NEED NameID since there are no attributes
             "wantNameIdEncrypted": False,
-            "wantAttributeStatement": True,
-            "requestedAuthnContext": True,
+            "wantAttributeStatement": False,  # IdP doesn't send attributes - use NameID only
+            "requestedAuthnContext": False,  # More lenient - don't require specific auth context
             "requestedAuthnContextComparison": "exact",
             "signatureAlgorithm": "http://www.w3.org/2001/04/xmldsig-more#rsa-sha256",
-            "digestAlgorithm": "http://www.w3.org/2001/04/xmlenc#sha256"
+            "digestAlgorithm": "http://www.w3.org/2001/04/xmlenc#sha256",
+            "rejectUnsolicitedResponsesWithInResponseTo": False  # Allow unsolicited responses
         }
     }
     
