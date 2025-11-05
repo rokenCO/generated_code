@@ -52,18 +52,18 @@ if SAML_ENABLED:
     try:
         from onelogin.saml2.auth import OneLogin_Saml2_Auth
         from saml_config import get_saml_settings
-        logger.info("✓ SAML SSO is ENABLED")
+        logger.info("âœ“ SAML SSO is ENABLED")
         logger.info(f"  - IdP Metadata: {Config.SAML_IDP_METADATA_FILE}")
         logger.info(f"  - ACS URL: {Config.WEB_PROXY_ALIAS}{Config.APP_BASE_PATH}{Config.SAML_ACS_PATH}")
     except ImportError as e:
-        logger.warning(f"✗ SAML libraries not found: {e}")
+        logger.warning(f"âœ— SAML libraries not found: {e}")
         logger.warning("  Install with: pip install python3-saml")
         SAML_ENABLED = False
     except Exception as e:
-        logger.error(f"✗ SAML configuration error: {e}")
+        logger.error(f"âœ— SAML configuration error: {e}")
         SAML_ENABLED = False
 else:
-    logger.info("✗ SAML SSO is DISABLED")
+    logger.info("âœ— SAML SSO is DISABLED")
     for issue in saml_config_issues:
         logger.info(f"  - {issue}")
 
@@ -563,16 +563,30 @@ def saml_login():
     if not SAML_ENABLED:
         return "SSO is not enabled", 403
     
-    req = prepare_flask_request(request)
-    auth = init_saml_auth(req)
-    
     # Store next URL in session
     if request.args.get('next'):
         session['next_url'] = request.args.get('next')
     
-    sso_url = auth.login()
-    logger.info(f"Redirecting to SSO: {sso_url}")
-    return redirect(sso_url)
+    # Get IdP SSO URL from metadata
+    try:
+        from saml_config import get_saml_settings
+        settings = get_saml_settings()
+        idp_sso_url = settings['idp']['singleSignOnService']['url']
+        entity_id = settings['sp']['entityId']
+    except Exception as e:
+        logger.error(f"Failed to get SAML settings: {e}")
+        return "SSO configuration error", 500
+    
+    # Build the redirect URL with SPID paramete
+    if '?' in idp_sso_url:
+        sso_redirect_url = f"{idp_sso_url}&SPID={entity_id}"
+    else:
+        sso_redirect_url = f"{idp_sso_url}?SPID={entity_id}"
+    
+    logger.info(f"Redirecting to SSO: {sso_redirect_url}")
+    logger.info(f"Entity ID (SPID): {entity_id}")
+    
+    return redirect(sso_redirect_url)
 
 
 @app.route('/saml/acs', methods=['POST'])
@@ -637,8 +651,8 @@ def saml_acs():
                     extracted_audiences.append(aud.text)
                 print("=" * 70 + "\n", file=sys.stderr)
             else:
-                logger.warning("⚠️  NO AUDIENCE FOUND IN SAML RESPONSE!")
-                print("⚠️  NO AUDIENCE FOUND IN SAML RESPONSE!", file=sys.stderr)
+                logger.warning("âš ï¸  NO AUDIENCE FOUND IN SAML RESPONSE!")
+                print("âš ï¸  NO AUDIENCE FOUND IN SAML RESPONSE!", file=sys.stderr)
             
             # Also log the Issuer for reference
             issuers = root.findall('.//saml:Issuer', namespaces)
@@ -652,17 +666,17 @@ def saml_acs():
             
             logger.info("=" * 70)
         else:
-            logger.error("❌ NO SAMLResponse IN POST DATA!")
+            logger.error("NO SAMLResponse IN POST DATA!")
             logger.error(f"POST data keys: {list(request.form.keys())}")
     except Exception as parse_error:
-        logger.error(f"❌ FAILED TO PARSE SAML RESPONSE: {parse_error}", exc_info=True)
+        logger.error(f"FAILED TO PARSE SAML RESPONSE: {parse_error}", exc_info=True)
     
     # Now process the response
     try:
         auth.process_response()
-        logger.info("✓ SAML response processed successfully")
+        logger.info("SAML response processed successfully")
     except Exception as e:
-        logger.error(f"❌ SAML response processing exception: {e}", exc_info=True)
+        logger.error(f"SAML response processing exception: {e}", exc_info=True)
         return f"SSO Authentication failed: {str(e)}", 400
     
     errors = auth.get_errors()
@@ -688,26 +702,26 @@ def saml_acs():
             print(f"  Received: {extracted_audiences[0]}", file=sys.stderr)
             
             if extracted_audiences and expected_entity_id != extracted_audiences[0]:
-                logger.error("  ❌ MISMATCH!")
+                logger.error("  âŒ MISMATCH!")
                 logger.error("")
                 logger.error("TO FIX: Your SSO team needs to configure the IdP with:")
                 logger.error(f"  Entity ID: {expected_entity_id}")
                 logger.error(f"  (Currently using: {extracted_audiences[0]})")
                 
-                print("  ❌ MISMATCH!", file=sys.stderr)
+                print("  âŒ MISMATCH!", file=sys.stderr)
                 print("", file=sys.stderr)
                 print("TO FIX: Your SSO team needs to configure the IdP with:", file=sys.stderr)
                 print(f"  Entity ID: {expected_entity_id}", file=sys.stderr)
                 print(f"  (Currently using: {extracted_audiences[0]})", file=sys.stderr)
             else:
-                logger.error("  ✓ Match - error is something else")
-                print("  ✓ Match - error is something else", file=sys.stderr)
+                logger.error("  âœ“ Match - error is something else")
+                print("  âœ“ Match - error is something else", file=sys.stderr)
             
             print("=" * 70 + "\n", file=sys.stderr)
         
         logger.error("=" * 70)
     else:
-        logger.info("✓ No SAML processing errors")
+        logger.info("âœ“ No SAML processing errors")
     
     logger.info(f"SAML is_authenticated: {auth.is_authenticated()}")
     
@@ -878,6 +892,14 @@ def saml_info():
         acs_url = settings['sp']['assertionConsumerService']['url']
         sls_url = settings['sp']['singleLogoutService']['url']
         
+        # Get SSO redirect URL from metadata
+        idp_sso_url = settings['idp']['singleSignOnService']['url']
+        
+        if '?' in idp_sso_url:
+            sso_redirect_url = f"{idp_sso_url}&SPID={entity_id}"
+        else:
+            sso_redirect_url = f"{idp_sso_url}?SPID={entity_id}"
+        
         html = f"""
         <html>
         <head>
@@ -887,13 +909,26 @@ def saml_info():
                 .box {{ background: #f5f5f5; padding: 20px; margin: 20px 0; border-radius: 5px; }}
                 .success {{ background: #d4edda; border-left: 4px solid #28a745; }}
                 .warning {{ background: #fff3cd; border-left: 4px solid #ffc107; }}
+                .info {{ background: #d1ecf1; border-left: 4px solid #0dcaf0; }}
                 code {{ background: #e9ecef; padding: 2px 6px; border-radius: 3px; }}
                 h2 {{ color: #333; border-bottom: 2px solid #007bff; padding-bottom: 10px; }}
                 .copy-btn {{ margin-left: 10px; padding: 5px 10px; cursor: pointer; }}
             </style>
         </head>
         <body>
-            <h1>✅ SAML SSO Configuration</h1>
+            <h1>SAML SSO Configuration</h1>
+            
+            <div class="box info">
+                <h2 SSO Login Flow</h2>
+                <p><strong>When user clicks "Sign in with SSO", they are redirected to:</strong></p>
+                <p><code id="sso-redirect" style="display: block; margin: 10px 0; padding: 10px; background: white;">{sso_redirect_url}</code>
+                <button class="copy-btn" onclick="copyToClipboard('sso-redirect')">ðŸ"‹ Copy</button>
+                </p>
+                <p style="font-size: 13px; color: #666;">
+                    <strong>Source:</strong> IdP metadata file (SingleSignOnService Location)<br>
+                    <strong>SPID Parameter:</strong> {entity_id}
+                </p>
+            </div>
             
             <div class="box success">
                 <h2>Your Service Provider (SP) Details</h2>
@@ -1000,7 +1035,8 @@ def saml_debug():
         'saml_enabled': SAML_ENABLED,
         'saml_config_issues': saml_config_issues if not SAML_ENABLED else [],
         'config_values': {},
-        'url_construction': {}
+        'url_construction': {},
+        'sso_redirect': {}
     }
     
     # Check each config value
@@ -1052,6 +1088,22 @@ def saml_debug():
                     'wantAssertionsSigned': settings['security']['wantAssertionsSigned'],
                     'wantNameId': settings['security']['wantNameId']
                 }
+            }
+            
+            # Show what SSO redirect URL will be used
+            entity_id = settings['sp']['entityId']
+            idp_sso_url = settings['idp']['singleSignOnService']['url']
+            
+            if '?' in idp_sso_url:
+                sso_redirect_url = f"{idp_sso_url}&SPID={entity_id}"
+            else:
+                sso_redirect_url = f"{idp_sso_url}?SPID={entity_id}"
+            
+            debug_info['sso_redirect'] = {
+                'entity_id': entity_id,
+                'idp_sso_url': idp_sso_url,
+                'idp_sso_url_source': 'metadata',
+                'full_redirect_url': sso_redirect_url
             }
         except Exception as e:
             debug_info['settings_error'] = str(e)
