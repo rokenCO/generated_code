@@ -9,11 +9,104 @@ from datetime import datetime, timedelta
 import ssl
 import subprocess
 import os
+import sys
 import json
 import logging
 from config import Config
 
 app = Flask(__name__)
+
+# Check if SAML is enabled - requires multiple config values
+SAML_ENABLED = False
+saml_config_issues = []
+
+# Check all required SAML config
+if not hasattr(Config, 'SAML_IDP_METADATA_FILE'):
+    saml_config_issues.append("SAML_IDP_METADATA_FILE not set")
+elif not Config.SAML_IDP_METADATA_FILE:
+    saml_config_issues.append("SAML_IDP_METADATA_FILE is empty")
+
+if not hasattr(Config, 'WEB_PROXY_ALIAS'):
+    saml_config_issues.append("WEB_PROXY_ALIAS not set")
+elif not Config.WEB_PROXY_ALIAS:
+    saml_config_issues.append("WEB_PROXY_ALIAS is empty")
+
+if not hasattr(Config, 'SAML_ACS_PATH'):
+    saml_config_issues.append("SAML_ACS_PATH not set")
+elif not Config.SAML_ACS_PATH:
+    saml_config_issues.append("SAML_ACS_PATH is empty")
+
+if not hasattr(Config, 'APP_BASE_PATH'):
+    saml_config_issues.append("APP_BASE_PATH not set (required for SAML)")
+
+# Only enable SAML if all config is present
+if not saml_config_issues:
+    SAML_ENABLED = True
+
+# Logging setup needs to happen early
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Import SAML dependencies only if enabled
+if SAML_ENABLED:
+    try:
+        from onelogin.saml2.auth import OneLogin_Saml2_Auth
+        from saml_config import get_saml_settings
+        logger.info("✓ SAML SSO is ENABLED")
+        logger.info(f"  - IdP Metadata: {Config.SAML_IDP_METADATA_FILE}")
+        logger.info(f"  - ACS URL: {Config.WEB_PROXY_ALIAS}{Config.APP_BASE_PATH}{Config.SAML_ACS_PATH}")
+    except ImportError as e:
+        logger.warning(f"✗ SAML libraries not found: {e}")
+        logger.warning("  Install with: pip install python3-saml")
+        SAML_ENABLED = False
+    except Exception as e:
+        logger.error(f"✗ SAML configuration error: {e}")
+        SAML_ENABLED = False
+else:
+    logger.info("✗ SAML SSO is DISABLED")
+    for issue in saml_config_issues:
+        logger.info(f"  - {issue}")
+
+# Corporate Actions Integration
+ca_db = None
+CA_ENABLED = False
+try:
+    if hasattr(Config, 'PKS_DB_HOST') and hasattr(Config, 'PDS_DB_HOST') and hasattr(Config, 'FOST_DB_HOST'):
+        from ca_database import CADatabase
+        from ca_routes import ca_bp
+        
+        # Initialize CA database
+        pks_config = {
+            'host': Config.PKS_DB_HOST,
+            'port': getattr(Config, 'PKS_DB_PORT', 5432),
+            'database': getattr(Config, 'PKS_DB_NAME', 'pks'),
+            'user': Config.PKS_DB_USER,
+            'password': Config.PKS_DB_PASSWORD
+        }
+        pds_config = {
+            'host': Config.PDS_DB_HOST,
+            'port': getattr(Config, 'PDS_DB_PORT', 5432),
+            'database': getattr(Config, 'PDS_DB_NAME', 'pds'),
+            'user': Config.PDS_DB_USER,
+            'password': Config.PDS_DB_PASSWORD
+        }
+        fost_config = {
+            'host': Config.FOST_DB_HOST,
+            'port': getattr(Config, 'FOST_DB_PORT', 5432),
+            'database': getattr(Config, 'FOST_DB_NAME', 'fost'),
+            'user': Config.FOST_DB_USER,
+            'password': Config.FOST_DB_PASSWORD
+        }
+        
+        ca_db = CADatabase(pks_config, pds_config, fost_config)
+        CA_ENABLED = True
+        logger.info("Corporate Actions feature is ENABLED")
+    else:
+        logger.info("Corporate Actions feature is DISABLED (database configs not found)")
+except ImportError as e:
+    logger.warning(f"Corporate Actions feature disabled: {e}")
+except Exception as e:
+    logger.error(f"Failed to initialize Corporate Actions: {e}")
 
 # File upload configuration
 UPLOAD_FOLDER = Path('/tmp/task_admin_uploads')
@@ -500,50 +593,122 @@ def saml_acs():
     
     auth = init_saml_auth(req)
     
-    # Log the expected Entity ID
+    # Log the expected Entity ID and store it for comparison
+    expected_entity_id = None
     try:
         settings = auth.get_settings()
         expected_entity_id = settings.get_sp_data().get('entityId')
         logger.info(f"  - Expected Entity ID (Audience): {expected_entity_id}")
+        print(f"\nExpected Entity ID (Audience): {expected_entity_id}", file=sys.stderr)
     except Exception as e:
         logger.warning(f"Could not get expected Entity ID: {e}")
     
+    # ALWAYS try to extract and log the Audience from raw SAML response
+    # This runs BEFORE processing, so we can see what was sent even if validation fails
+    extracted_audiences = []
+    try:
+        import xml.etree.ElementTree as ET
+        import base64
+        
+        saml_response = request.form.get('SAMLResponse', '')
+        if saml_response:
+            decoded = base64.b64decode(saml_response)
+            logger.info("=" * 70)
+            logger.info("SAML RESPONSE RECEIVED")
+            logger.info("=" * 70)
+            logger.info(f"Response size: {len(decoded)} bytes")
+            
+            # Try to parse and find Audience
+            root = ET.fromstring(decoded)
+            namespaces = {
+                'saml': 'urn:oasis:names:tc:SAML:2.0:assertion',
+                'samlp': 'urn:oasis:names:tc:SAML:2.0:protocol'
+            }
+            
+            # Find all Audience elements
+            audiences = root.findall('.//saml:Audience', namespaces)
+            if audiences:
+                logger.info("AUDIENCE(S) IN SAML RESPONSE:")
+                print("\n" + "=" * 70, file=sys.stderr)
+                print("AUDIENCE(S) IN SAML RESPONSE:", file=sys.stderr)
+                for i, aud in enumerate(audiences, 1):
+                    logger.info(f"  [{i}] {aud.text}")
+                    print(f"  [{i}] {aud.text}", file=sys.stderr)
+                    extracted_audiences.append(aud.text)
+                print("=" * 70 + "\n", file=sys.stderr)
+            else:
+                logger.warning("⚠️  NO AUDIENCE FOUND IN SAML RESPONSE!")
+                print("⚠️  NO AUDIENCE FOUND IN SAML RESPONSE!", file=sys.stderr)
+            
+            # Also log the Issuer for reference
+            issuers = root.findall('.//saml:Issuer', namespaces)
+            if issuers:
+                logger.info(f"Issuer: {issuers[0].text}")
+            
+            # Log NameID if present
+            name_ids = root.findall('.//saml:NameID', namespaces)
+            if name_ids:
+                logger.info(f"NameID: {name_ids[0].text}")
+            
+            logger.info("=" * 70)
+        else:
+            logger.error("❌ NO SAMLResponse IN POST DATA!")
+            logger.error(f"POST data keys: {list(request.form.keys())}")
+    except Exception as parse_error:
+        logger.error(f"❌ FAILED TO PARSE SAML RESPONSE: {parse_error}", exc_info=True)
+    
+    # Now process the response
     try:
         auth.process_response()
+        logger.info("✓ SAML response processed successfully")
     except Exception as e:
-        logger.error(f"SAML response processing exception: {e}", exc_info=True)
-        
-        # Try to extract Audience from the raw response for debugging
-        try:
-            import xml.etree.ElementTree as ET
-            saml_response = request.form.get('SAMLResponse', '')
-            if saml_response:
-                import base64
-                decoded = base64.b64decode(saml_response)
-                logger.info(f"Raw SAML Response (first 500 chars): {decoded[:500]}")
-                
-                # Try to parse and find Audience
-                root = ET.fromstring(decoded)
-                namespaces = {
-                    'saml': 'urn:oasis:names:tc:SAML:2.0:assertion',
-                    'samlp': 'urn:oasis:names:tc:SAML:2.0:protocol'
-                }
-                audiences = root.findall('.//saml:Audience', namespaces)
-                if audiences:
-                    logger.info(f"  - Audience(s) in SAML Response:")
-                    for aud in audiences:
-                        logger.info(f"    - {aud.text}")
-                else:
-                    logger.warning("  - No Audience found in SAML Response")
-        except Exception as parse_error:
-            logger.error(f"Could not parse SAML response for debugging: {parse_error}")
-        
+        logger.error(f"❌ SAML response processing exception: {e}", exc_info=True)
         return f"SSO Authentication failed: {str(e)}", 400
     
     errors = auth.get_errors()
     
     # Log all SAML processing details for debugging
-    logger.info(f"SAML response processed. Errors: {errors}")
+    if errors:
+        logger.error("=" * 70)
+        logger.error("SAML VALIDATION FAILED")
+        logger.error("=" * 70)
+        logger.error(f"Errors: {errors}")
+        error_reason = auth.get_last_error_reason() if hasattr(auth, 'get_last_error_reason') else 'Unknown'
+        logger.error(f"Error reason: {error_reason}")
+        
+        # Show comparison if we extracted audiences
+        if extracted_audiences:
+            logger.error("AUDIENCE COMPARISON:")
+            logger.error(f"  Expected: {expected_entity_id}")
+            logger.error(f"  Received: {extracted_audiences[0] if extracted_audiences else 'NONE'}")
+            
+            print("\n" + "=" * 70, file=sys.stderr)
+            print("AUDIENCE COMPARISON:", file=sys.stderr)
+            print(f"  Expected: {expected_entity_id}", file=sys.stderr)
+            print(f"  Received: {extracted_audiences[0]}", file=sys.stderr)
+            
+            if extracted_audiences and expected_entity_id != extracted_audiences[0]:
+                logger.error("  ❌ MISMATCH!")
+                logger.error("")
+                logger.error("TO FIX: Your SSO team needs to configure the IdP with:")
+                logger.error(f"  Entity ID: {expected_entity_id}")
+                logger.error(f"  (Currently using: {extracted_audiences[0]})")
+                
+                print("  ❌ MISMATCH!", file=sys.stderr)
+                print("", file=sys.stderr)
+                print("TO FIX: Your SSO team needs to configure the IdP with:", file=sys.stderr)
+                print(f"  Entity ID: {expected_entity_id}", file=sys.stderr)
+                print(f"  (Currently using: {extracted_audiences[0]})", file=sys.stderr)
+            else:
+                logger.error("  ✓ Match - error is something else")
+                print("  ✓ Match - error is something else", file=sys.stderr)
+            
+            print("=" * 70 + "\n", file=sys.stderr)
+        
+        logger.error("=" * 70)
+    else:
+        logger.info("✓ No SAML processing errors")
+    
     logger.info(f"SAML is_authenticated: {auth.is_authenticated()}")
     
     # Check if authenticated - this is more reliable than checking errors
