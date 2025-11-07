@@ -532,6 +532,215 @@
     .view-details-btn:hover {
         background: #005a9e;
     }
+
+    /* Modal Dialog Styles */
+    .modal-overlay {
+        display: none;
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.7);
+        z-index: 1000;
+        animation: fadeIn 0.2s;
+    }
+
+    .modal-overlay.active {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    @keyframes fadeIn {
+        from { opacity: 0; }
+        to { opacity: 1; }
+    }
+
+    .modal-dialog {
+        background: white;
+        border-radius: 8px;
+        max-width: 900px;
+        width: 90%;
+        max-height: 85vh;
+        display: flex;
+        flex-direction: column;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        animation: slideUp 0.3s;
+    }
+
+    @keyframes slideUp {
+        from {
+            transform: translateY(30px);
+            opacity: 0;
+        }
+        to {
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+
+    .modal-header {
+        padding: 20px 25px;
+        border-bottom: 2px solid #e0e0e0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+
+    .modal-title {
+        font-size: 20px;
+        font-weight: 600;
+        color: #333;
+        margin: 0;
+    }
+
+    .modal-close {
+        background: none;
+        border: none;
+        font-size: 28px;
+        color: #666;
+        cursor: pointer;
+        padding: 0;
+        width: 32px;
+        height: 32px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 4px;
+        transition: all 0.2s;
+    }
+
+    .modal-close:hover {
+        background: #f5f5f5;
+        color: #333;
+    }
+
+    .modal-body {
+        padding: 25px;
+        overflow-y: auto;
+        flex: 1;
+    }
+
+    .modal-footer {
+        padding: 15px 25px;
+        border-top: 1px solid #e0e0e0;
+        display: flex;
+        gap: 10px;
+        justify-content: flex-end;
+    }
+
+    .details-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+        gap: 15px;
+        margin-bottom: 25px;
+    }
+
+    .detail-item {
+        background: #f9f9f9;
+        padding: 12px;
+        border-radius: 6px;
+        border-left: 3px solid #007acc;
+    }
+
+    .detail-label {
+        font-size: 11px;
+        font-weight: 600;
+        color: #666;
+        text-transform: uppercase;
+        margin-bottom: 5px;
+        letter-spacing: 0.5px;
+    }
+
+    .detail-value {
+        font-size: 14px;
+        color: #333;
+        word-break: break-word;
+    }
+
+    .detail-value.empty {
+        color: #999;
+        font-style: italic;
+    }
+
+    .varfields-section {
+        margin-top: 25px;
+        padding-top: 20px;
+        border-top: 2px solid #e0e0e0;
+    }
+
+    .varfields-section h3 {
+        font-size: 16px;
+        color: #333;
+        margin-bottom: 15px;
+    }
+
+    .varfields-table {
+        width: 100%;
+        border-collapse: collapse;
+        background: white;
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        overflow: hidden;
+    }
+
+    .varfields-table th {
+        background: #f5f5f5;
+        padding: 10px;
+        text-align: left;
+        font-size: 12px;
+        font-weight: 600;
+        color: #555;
+        border-bottom: 2px solid #e0e0e0;
+    }
+
+    .varfields-table td {
+        padding: 10px;
+        border-bottom: 1px solid #f0f0f0;
+        font-size: 13px;
+    }
+
+    .varfields-table tr:last-child td {
+        border-bottom: none;
+    }
+
+    .varfields-table tr:hover {
+        background: #f9f9f9;
+    }
+
+    .modal-loading {
+        text-align: center;
+        padding: 60px 20px;
+    }
+
+    .modal-loading .spinner {
+        width: 40px;
+        height: 40px;
+        border-width: 4px;
+    }
+
+    .copy-json-btn {
+        background: #4caf50;
+        color: white;
+        border: none;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-size: 13px;
+        cursor: pointer;
+        transition: background 0.3s;
+    }
+
+    .copy-json-btn:hover {
+        background: #388e3c;
+    }
+
+    .no-varfields {
+        text-align: center;
+        padding: 30px;
+        color: #666;
+        font-style: italic;
+    }
     </style>
 </head>
 <body>
@@ -551,7 +760,7 @@
                     {% endif %}
                 </div>
                 <div class="user-roles">
-                    {{ user.email or user.username }} • 
+                    {{ user.email or user.username }} â€¢ 
                     {% if user.relevant_roles %}
                         Active roles: 
                         {% for role in user.relevant_roles %}
@@ -572,15 +781,15 @@
         <!-- Tab Navigation -->
         <div class="tab-navigation">
             <button class="tab-button active" onclick="switchTab('task-admin')">
-                🔧 Task Admin
+                ðŸ”§ Task Admin
             </button>
             {% if 'console_control' in commands %}
             <button class="tab-button" onclick="switchTab('console-control')">
-                📊 Console Control
+                ðŸ“Š Console Control
             </button>
             {% endif %}
             <button class="tab-button" onclick="switchTab('corporate-actions')">
-                📈 Corporate Actions
+                ðŸ“ˆ Corporate Actions
             </button>
         </div>
         
@@ -627,7 +836,7 @@
                     Command History - Task Admin
                     <span id="lastRefresh" style="font-size: 12px; color: #999; font-weight: normal; margin-left: 10px;"></span>
                     <button onclick="loadHistoryFromServer()" style="float: right; padding: 5px 15px; font-size: 13px; background: #007acc; margin-top: -5px;">
-                        🔄 Refresh
+                        ðŸ”„ Refresh
                     </button>
                 </h3>
                 <div id="historyList"></div>
@@ -638,10 +847,10 @@
         {% if 'console_control' in commands %}
         <!-- Console Control Tab -->
         <div id="console-control-tab" class="tab-content">
-            <h2 style="margin-top: 0;">📊 Console Control - Booking Load & Book</h2>
+            <h2 style="margin-top: 0;">ðŸ“Š Console Control - Booking Load & Book</h2>
             <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
                 Upload a CSV file to execute the booking workflow through the console control interface.<br>
-                <strong>Process:</strong> 1) booking_load (CSV file) → 2) booking_book all
+                <strong>Process:</strong> 1) booking_load (CSV file) â†’ 2) booking_book all
             </p>
             
             <div class="console-form">
@@ -654,18 +863,18 @@
                         onchange="handleFileSelect(event)"
                     >
                     <div class="upload-prompt" onclick="document.getElementById('csvFile').click()">
-                        <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
+                        <div style="font-size: 48px; margin-bottom: 10px;">ðŸ“</div>
                         <div style="font-weight: 600; margin-bottom: 5px;">Click to select CSV file</div>
                         <div style="font-size: 13px; color: #666;">or drag and drop here</div>
                         <div style="font-size: 12px; color: #999; margin-top: 10px;">Max file size: 16MB</div>
                     </div>
                     <div class="file-info" id="fileInfo" style="display: none;">
-                        <div class="file-icon">📄</div>
+                        <div class="file-icon">ðŸ“„</div>
                         <div class="file-details">
                             <div class="file-name" id="fileName"></div>
                             <div class="file-size" id="fileSize"></div>
                         </div>
-                        <button class="file-remove" onclick="removeFile()">✕</button>
+                        <button class="file-remove" onclick="removeFile()">âœ•</button>
                     </div>
                 </div>
                 
@@ -675,7 +884,7 @@
                     disabled
                     class="console-execute-btn"
                 >
-                    🚀 Execute Booking Workflow
+                    ðŸš€ Execute Booking Workflow
                 </button>
             </div>
             
@@ -691,7 +900,7 @@
                     Command History - Console Control
                     <span id="consoleLastRefresh" style="font-size: 12px; color: #999; font-weight: normal; margin-left: 10px;"></span>
                     <button onclick="loadConsoleHistoryFromServer()" style="float: right; padding: 5px 15px; font-size: 13px; background: #007acc; margin-top: -5px;">
-                        🔄 Refresh
+                        ðŸ”„ Refresh
                     </button>
                 </h3>
                 <div id="consoleHistoryList"></div>
@@ -702,7 +911,7 @@
         
         <!-- Corporate Actions Tab -->
         <div id="corporate-actions-tab" class="tab-content">
-            <h2 style="margin-top: 0;">📊 Bloomberg Corporate Actions</h2>
+            <h2 style="margin-top: 0;">ðŸ“Š Bloomberg Corporate Actions</h2>
             <p style="color: #666; font-size: 14px; margin-bottom: 20px;">
                 View upcoming corporate actions for the next 7 days. Filter by instruments in current bookings.
             </p>
@@ -711,7 +920,7 @@
             <div class="ca-filters">
                 <div class="filter-row">
                     <div class="filter-group">
-                        <label for="daysAhead">📅 Days Ahead:</label>
+                        <label for="daysAhead">ðŸ“… Days Ahead:</label>
                         <select id="daysAhead" onchange="loadCorporateActions()">
                             <option value="1">1 day</option>
                             <option value="3">3 days</option>
@@ -722,7 +931,7 @@
                     </div>
                     
                     <div class="filter-group">
-                        <label for="caSearch">🔍 Search:</label>
+                        <label for="caSearch">ðŸ” Search:</label>
                         <input 
                             type="text" 
                             id="caSearch" 
@@ -739,7 +948,7 @@
                                 onchange="loadCorporateActions()"
                                 style="width: auto; margin-right: 5px;"
                             >
-                            📚 Booking Instruments Only
+                            ðŸ“š Booking Instruments Only
                         </label>
                     </div>
                     
@@ -747,7 +956,7 @@
                         onclick="loadCorporateActions()" 
                         style="background: #007acc; padding: 10px 20px; margin-left: auto;"
                     >
-                        🔄 Refresh
+                        ðŸ”„ Refresh
                     </button>
                 </div>
             </div>
@@ -780,7 +989,7 @@
                 <div class="ca-table-header">
                     <h3 style="margin: 0;">Corporate Actions Results</h3>
                     <button onclick="exportToCSV()" style="background: #4caf50; padding: 8px 16px; font-size: 13px;">
-                        📥 Export CSV
+                        ðŸ“¥ Export CSV
                     </button>
                 </div>
                 
@@ -807,14 +1016,14 @@
             
             <!-- No Results Message -->
             <div id="caNoResults" style="display: none; text-align: center; padding: 40px; color: #666;">
-                <div style="font-size: 48px; margin-bottom: 15px;">📊</div>
+                <div style="font-size: 48px; margin-bottom: 15px;">ðŸ“Š</div>
                 <h3>No Corporate Actions Found</h3>
                 <p>Try adjusting your filters or search criteria</p>
             </div>
             
             <!-- Booking Instruments Panel (shown when filter is active) -->
             <div id="bookingInstrumentsPanel" style="display: none; margin-top: 30px;">
-                <h3>📚 Instruments in Current Bookings (<span id="bookingInstrCount">0</span>)</h3>
+                <h3>ðŸ“š Instruments in Current Bookings (<span id="bookingInstrCount">0</span>)</h3>
                 <div class="booking-instruments-grid" id="bookingInstrumentsGrid">
                     <!-- Populated by JavaScript -->
                 </div>
@@ -1012,7 +1221,7 @@
             } catch (error) {
                 showConsoleStatus('Upload failed: ' + error.message, 'error');
                 uploadPrompt.innerHTML = `
-                    <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
+                    <div style="font-size: 48px; margin-bottom: 10px;">ðŸ“</div>
                     <div style="font-weight: 600; margin-bottom: 5px;">Click to select CSV file</div>
                     <div style="font-size: 13px; color: #666;">or drag and drop here</div>
                     <div style="font-size: 12px; color: #999; margin-top: 10px;">Max file size: 16MB</div>
@@ -1049,7 +1258,7 @@
             
             // Restore the original upload prompt HTML
             uploadPrompt.innerHTML = `
-                <div style="font-size: 48px; margin-bottom: 10px;">📁</div>
+                <div style="font-size: 48px; margin-bottom: 10px;">ðŸ“</div>
                 <div style="font-weight: 600; margin-bottom: 5px;">Click to select CSV file</div>
                 <div style="font-size: 13px; color: #666;">or drag and drop here</div>
                 <div style="font-size: 12px; color: #999; margin-top: 10px;">Max file size: 16MB</div>
@@ -1078,7 +1287,7 @@
             const btn = document.getElementById('consoleExecuteBtn');
             const output = document.getElementById('console-output');
             
-            btn.innerHTML = '⏳ Executing... <div class="spinner"></div>';
+            btn.innerHTML = 'â³ Executing... <div class="spinner"></div>';
             btn.disabled = true;
             
             output.textContent = `Executing booking workflow: ${uploadedFile.originalName}\n\n1. booking_load ${uploadedFile.originalName}\n2. booking_book all\n\nPlease wait, this may take several minutes for large files...\n\n`;
@@ -1107,7 +1316,7 @@
                     outputText += `1. booking_load ${uploadedFile.originalName}\n`;
                     outputText += `2. booking_book all\n`;
                     outputText += `Return Code: ${data.returncode}\n`;
-                    outputText += '─'.repeat(60) + '\n\n';
+                    outputText += 'â”€'.repeat(60) + '\n\n';
                     
                     if (data.stdout) {
                         // Strip ANSI codes from stdout
@@ -1144,7 +1353,7 @@
                 output.className = 'output error';
                 showConsoleStatus('Failed to execute console command', 'error');
             } finally {
-                btn.innerHTML = '🚀 Execute Booking Workflow';
+                btn.innerHTML = 'ðŸš€ Execute Booking Workflow';
                 btn.disabled = false;
                 executing = false;
             }
@@ -1155,7 +1364,7 @@
             const originalText = refreshBtn ? refreshBtn.innerHTML : '';
             
             if (refreshBtn) {
-                refreshBtn.innerHTML = '⏳ Loading...';
+                refreshBtn.innerHTML = 'â³ Loading...';
                 refreshBtn.disabled = true;
             }
             
@@ -1192,7 +1401,7 @@
             const originalText = refreshBtn ? refreshBtn.innerHTML : '';
             
             if (refreshBtn) {
-                refreshBtn.innerHTML = '⏳ Loading...';
+                refreshBtn.innerHTML = 'â³ Loading...';
                 refreshBtn.disabled = true;
             }
             
@@ -1266,7 +1475,7 @@
                 if (response.ok) {
                     let outputText = `Command: task_admin -c config.xml ${command} ${args.join(' ')}\n`;
                     outputText += `Return Code: ${data.returncode}\n`;
-                    outputText += '─'.repeat(60) + '\n\n';
+                    outputText += 'â”€'.repeat(60) + '\n\n';
                     
                     if (data.stdout) {
                         // Strip ANSI codes from stdout
@@ -1347,7 +1556,7 @@
             }
             
             historyList.innerHTML = commandHistory.map((item, index) => {
-                const statusIcon = item.success ? '✓' : '✗';
+                const statusIcon = item.success ? 'âœ“' : 'âœ—';
                 const borderColor = item.success ? '#4caf50' : '#f44336';
                 return `
                     <div class="history-item" onclick="loadFromHistory(${index})" style="border-left-color: ${borderColor};">
@@ -1370,7 +1579,7 @@
             }
             
             historyList.innerHTML = consoleCommandHistory.map((item, index) => {
-                const statusIcon = item.success ? '✓' : '✗';
+                const statusIcon = item.success ? 'âœ“' : 'âœ—';
                 const borderColor = item.success ? '#4caf50' : '#f44336';
                 const fileName = item.args.length > 1 ? item.args[1] : 'unknown';
                 return `
@@ -1551,7 +1760,7 @@
                         class="view-details-btn" 
                         onclick="viewCADetails('${ca.action_id}', '${ca.ticker}')"
                     >
-                        📋 Details
+                        ðŸ“‹ Details
                     </button>
                 </td>
             `;
@@ -1640,6 +1849,21 @@
     }
 
     async function viewCADetails(actionId, ticker) {
+        // Open modal with loading state
+        const modal = document.getElementById('caDetailsModal');
+        const modalBody = document.getElementById('modalBody');
+        const modalTitle = document.getElementById('modalTitle');
+        
+        modalBody.innerHTML = `
+            <div class="modal-loading">
+                <div class="spinner"></div>
+                <p style="margin-top: 15px; color: #666;">Loading details...</p>
+            </div>
+        `;
+        
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        
         try {
             const response = await fetch(`{{ base_path }}/api/ca/actions/${actionId}?ticker=${encodeURIComponent(ticker)}`);
             const data = await response.json();
@@ -1648,14 +1872,148 @@
                 throw new Error(data.error || 'Failed to load details');
             }
             
-            // Create modal or detailed view
-            alert(JSON.stringify(data, null, 2)); // Simple alert for now
-            // TODO: Create a proper modal dialog
+            // Store data globally for copying
+            window.currentCADetails = data;
+            
+            // Update modal title
+            modalTitle.textContent = `${data.bccompanyname || 'Corporate Action'} - ${data.bcmnemonic || ''}`;
+            
+            // Format and display data
+            modalBody.innerHTML = renderCADetails(data);
             
         } catch (error) {
+            modalBody.innerHTML = `
+                <div style="text-align: center; padding: 40px; color: #f44336;">
+                    <div style="font-size: 48px; margin-bottom: 15px;">⚠️</div>
+                    <h3 style="margin-bottom: 10px;">Error Loading Details</h3>
+                    <p>${error.message}</p>
+                </div>
+            `;
             showCAStatus('Error loading details: ' + error.message, 'error');
         }
     }
+
+    function renderCADetails(data) {
+        // Main details section
+        const mainFields = [
+            { label: 'Ticker', value: data.bcticker_exch_code },
+            { label: 'Company Name', value: data.bccompanyname },
+            { label: 'CA Type', value: `${data.bcmnemonic} - ${getCATypeDescription(data.bcmnemonic)}` },
+            { label: 'Action ID', value: data.bcactionid },
+            { label: 'Effective Date', value: data.bceffdate ? new Date(data.bceffdate).toLocaleDateString() : 'N/A' },
+            { label: 'Announcement Date', value: data.bcanndate ? new Date(data.bcanndate).toLocaleDateString() : 'N/A' },
+            { label: 'Currency', value: data.bccurrency },
+            { label: 'Sector', value: data.bcmarketsectordescription },
+            { label: 'Security ID', value: data.bcsecid },
+            { label: 'Security ID Type', value: data.bcsecidtype },
+            { label: 'Flag', value: data.bcflag },
+        ];
+        
+        let html = '<div class="details-grid">';
+        
+        mainFields.forEach(field => {
+            const value = field.value || 'N/A';
+            const isEmpty = !field.value || field.value === 'N/A';
+            html += `
+                <div class="detail-item">
+                    <div class="detail-label">${field.label}</div>
+                    <div class="detail-value ${isEmpty ? 'empty' : ''}">${value}</div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        
+        // Variable fields section
+        if (data.variable_fields && data.variable_fields.length > 0) {
+            html += `
+                <div class="varfields-section">
+                    <h3>📊 Variable Fields (${data.variable_fields.length})</h3>
+                    <table class="varfields-table">
+                        <thead>
+                            <tr>
+                                <th>Field ID</th>
+                                <th>Value</th>
+                                <th>Effective Date</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+            `;
+            
+            data.variable_fields.forEach(field => {
+                const effDate = field.eff_date ? new Date(field.eff_date).toLocaleDateString() : 'N/A';
+                html += `
+                    <tr>
+                        <td><strong>${field.field_id}</strong></td>
+                        <td>${field.value || 'N/A'}</td>
+                        <td>${effDate}</td>
+                    </tr>
+                `;
+            });
+            
+            html += `
+                        </tbody>
+                    </table>
+                </div>
+            `;
+        } else {
+            html += `
+                <div class="varfields-section">
+                    <h3>📊 Variable Fields</h3>
+                    <div class="no-varfields">No variable fields available for this corporate action</div>
+                </div>
+            `;
+        }
+        
+        return html;
+    }
+
+    function closeCADetailsModal(event) {
+        // Only close if clicking overlay or close button
+        if (event && event.target.classList.contains('modal-dialog')) {
+            return;
+        }
+        
+        const modal = document.getElementById('caDetailsModal');
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+        window.currentCADetails = null;
+    }
+
+    function copyCADetailsJSON() {
+        if (!window.currentCADetails) {
+            showCAStatus('No data to copy', 'error');
+            return;
+        }
+        
+        const json = JSON.stringify(window.currentCADetails, null, 2);
+        
+        navigator.clipboard.writeText(json).then(() => {
+            const btn = document.getElementById('copyJsonBtn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '✓ Copied!';
+            btn.style.background = '#388e3c';
+            
+            setTimeout(() => {
+                btn.innerHTML = originalText;
+                btn.style.background = '';
+            }, 2000);
+            
+            showCAStatus('JSON copied to clipboard', 'success');
+        }).catch(err => {
+            showCAStatus('Failed to copy: ' + err.message, 'error');
+        });
+    }
+
+    // Close modal with Escape key
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('caDetailsModal');
+            if (modal.classList.contains('active')) {
+                closeCADetailsModal();
+            }
+        }
+    });
 
     function exportToCSV() {
         if (caData.length === 0) {
@@ -1721,5 +2079,29 @@
         }
     });
     </script>
+
+    <!-- CA Details Modal -->
+    <div id="caDetailsModal" class="modal-overlay" onclick="closeCADetailsModal(event)">
+        <div class="modal-dialog" onclick="event.stopPropagation()">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Corporate Action Details</h2>
+                <button class="modal-close" onclick="closeCADetailsModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modalBody">
+                <div class="modal-loading">
+                    <div class="spinner"></div>
+                    <p style="margin-top: 15px; color: #666;">Loading details...</p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="copy-json-btn" onclick="copyCADetailsJSON()" id="copyJsonBtn">
+                    📋 Copy Raw JSON
+                </button>
+                <button onclick="closeCADetailsModal()" style="background: #666; color: white; border: none; padding: 8px 16px; border-radius: 4px; cursor: pointer;">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
 </body>
 </html>
