@@ -2,7 +2,7 @@
 """
 Corporate Actions Database Module
 Handles queries for Bloomberg corporate actions data
-WITH SCHEMA-QUALIFIED TABLE NAMES
+WITH SCHEMA-QUALIFIED TABLE NAMES AND BLOOMBERG SUFFIX STRIPPING
 """
 
 import psycopg2
@@ -11,6 +11,44 @@ from datetime import datetime, timedelta
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Bloomberg security type suffixes that need to be stripped
+BLOOMBERG_SUFFIXES = [
+    ' Equity',
+    ' Comdty',
+    ' Curncy',
+    ' Index',
+    ' Corp',
+    ' Govt',
+    ' Mtge',
+    ' M-Mkt',
+    ' Muni',
+    ' Pfd',
+]
+
+def strip_bloomberg_suffix(symbol_code):
+    """
+    Strip Bloomberg security type suffix from symbol
+    
+    Examples:
+        'OSWED S1 Equity' -> 'OSWED S1'
+        'GC1 Comdty' -> 'GC1'
+        'EURUSD Curncy' -> 'EURUSD'
+    
+    Args:
+        symbol_code: Full Bloomberg symbol code
+        
+    Returns:
+        Symbol code with suffix stripped
+    """
+    if not symbol_code:
+        return symbol_code
+    
+    for suffix in BLOOMBERG_SUFFIXES:
+        if symbol_code.endswith(suffix):
+            return symbol_code[:-len(suffix)].strip()
+    
+    return symbol_code
 
 
 class CADatabase:
@@ -70,13 +108,13 @@ class CADatabase:
     
     def map_instr_ids_to_symbols(self, instr_ids):
         """
-        Map instrument IDs to their symbol codes
+        Map instrument IDs to their symbol codes (stripped of Bloomberg suffixes)
         
         Args:
             instr_ids: List of integer instrument IDs
             
         Returns:
-            Dict mapping instr_id -> symbol_code
+            Dict mapping instr_id -> symbol_code (with Bloomberg suffix stripped)
         """
         if not instr_ids:
             return {}
@@ -106,8 +144,20 @@ class CADatabase:
                     cur.execute(query, (instr_ids,))
                     results = cur.fetchall()
                     
-                    mapping = {row['id']: row['code'] for row in results}
-                    logger.info(f"Mapped {len(mapping)} instruments to symbols")
+                    # Strip Bloomberg suffixes from symbol codes
+                    mapping = {}
+                    stripped_count = 0
+                    for row in results:
+                        original_code = row['code']
+                        stripped_code = strip_bloomberg_suffix(original_code)
+                        mapping[row['id']] = stripped_code
+                        
+                        # Count if we stripped a suffix
+                        if original_code != stripped_code:
+                            stripped_count += 1
+                            logger.debug(f"Stripped symbol: '{original_code}' -> '{stripped_code}'")
+                    
+                    logger.info(f"Mapped {len(mapping)} instruments to symbols ({stripped_count} suffixes stripped)")
                     return mapping
         except Exception as e:
             logger.error(f"Error mapping instrument IDs: {e}")
@@ -119,7 +169,7 @@ class CADatabase:
         
         Args:
             days_ahead: Number of days to look ahead (default 7)
-            symbols: Optional list of symbols to filter by
+            symbols: Optional list of symbols to filter by (should already be stripped)
             search_term: Optional search term for ticker/company name
             
         Returns:
