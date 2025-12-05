@@ -233,11 +233,14 @@
             <p class="sso-description">Use your company account</p>
         </div>
         
+        {% if ldap_login_enabled %}
         <div class="divider">
             <span>OR</span>
         </div>
         {% endif %}
+        {% endif %}
         
+        {% if ldap_login_enabled %}
         <!-- LDAP Login Form (Alternative) -->
         <form method="POST" id="loginForm" action="{{ base_path }}/login">
             <input type="hidden" name="next" value="{{ next_url or '' }}">
@@ -282,17 +285,21 @@
                 Sign In
             </button>
         </form>
+        {% endif %}
         
         <div class="login-footer">
-            {% if saml_enabled %}
+            {% if saml_enabled and ldap_login_enabled %}
             <p>SSO or LDAP Authentication</p>
-            {% else %}
+            {% elif saml_enabled %}
+            <p>SSO Authentication Only</p>
+            {% elif ldap_login_enabled %}
             <p>LDAP Authentication</p>
             {% endif %}
         </div>
     </div>
 
     <script>
+        {% if ldap_login_enabled %}
         let isSubmitting = false;
         
         document.getElementById('loginForm').addEventListener('submit', function() {
@@ -323,6 +330,7 @@
                 document.getElementById('loginForm').submit();
             }
         });
+        {% endif %}
     </script>
 </body>
 </html>

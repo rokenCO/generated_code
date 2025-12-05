@@ -52,20 +52,24 @@ if SAML_ENABLED:
     try:
         from onelogin.saml2.auth import OneLogin_Saml2_Auth
         from saml_config import get_saml_settings
-        logger.info("âœ“ SAML SSO is ENABLED")
+        logger.info("Ã¢Å“â€œ SAML SSO is ENABLED")
         logger.info(f"  - IdP Metadata: {Config.SAML_IDP_METADATA_FILE}")
         logger.info(f"  - ACS URL: {Config.WEB_PROXY_ALIAS}{Config.APP_BASE_PATH}{Config.SAML_ACS_PATH}")
     except ImportError as e:
-        logger.warning(f"âœ— SAML libraries not found: {e}")
+        logger.warning(f"Ã¢Å“â€” SAML libraries not found: {e}")
         logger.warning("  Install with: pip install python3-saml")
         SAML_ENABLED = False
     except Exception as e:
-        logger.error(f"âœ— SAML configuration error: {e}")
+        logger.error(f"Ã¢Å“â€” SAML configuration error: {e}")
         SAML_ENABLED = False
 else:
-    logger.info("âœ— SAML SSO is DISABLED")
+    logger.info("Ã¢Å“â€” SAML SSO is DISABLED")
     for issue in saml_config_issues:
         logger.info(f"  - {issue}")
+
+# LDAP Login Configuration
+LDAP_LOGIN_ENABLED = getattr(Config, 'LDAP_LOGIN_ENABLED', True)
+logger.info(f"LDAP Login: {'ENABLED' if LDAP_LOGIN_ENABLED else 'DISABLED'}")
 
 # Corporate Actions Integration
 ca_db = None
@@ -487,16 +491,29 @@ def login():
         return render_template('login.html', 
                              next_url=next_url,
                              saml_enabled=SAML_ENABLED,
+                             ldap_login_enabled=LDAP_LOGIN_ENABLED,
                              saml_login_url=build_url('/saml/login'))
     
     # POST - process login
+    # Check if LDAP login is disabled
+    if not LDAP_LOGIN_ENABLED:
+        logger.warning("LDAP login attempt rejected - LDAP login is disabled")
+        return render_template('login.html',
+                             error='Direct login is disabled. Please use SSO.',
+                             saml_enabled=SAML_ENABLED,
+                             ldap_login_enabled=LDAP_LOGIN_ENABLED,
+                             saml_login_url=build_url('/saml/login'))
+    
     username = request.form.get('username', '').strip()
     password = request.form.get('password', '')
     
     if not username or not password:
         return render_template('login.html', 
                              error='Username and password required',
-                             username=username)
+                             username=username,
+                             saml_enabled=SAML_ENABLED,
+                             ldap_login_enabled=LDAP_LOGIN_ENABLED,
+                             saml_login_url=build_url('/saml/login'))
     
     # Authenticate
     success, user_dn, error = authenticate_user(username, password)
@@ -505,14 +522,20 @@ def login():
         logger.warning(f"Login failed for {username}: {error}")
         return render_template('login.html', 
                              error='Invalid username or password',
-                             username=username)
+                             username=username,
+                             saml_enabled=SAML_ENABLED,
+                             ldap_login_enabled=LDAP_LOGIN_ENABLED,
+                             saml_login_url=build_url('/saml/login'))
     
     # Get user details and roles
     user_data = get_user_details(username)
     if not user_data:
         return render_template('login.html',
                              error='Failed to retrieve user information',
-                             username=username)
+                             username=username,
+                             saml_enabled=SAML_ENABLED,
+                             ldap_login_enabled=LDAP_LOGIN_ENABLED,
+                             saml_login_url=build_url('/saml/login'))
     
     # Check permissions
     permissions = check_user_permissions(user_data['roles'])
@@ -521,7 +544,10 @@ def login():
         logger.warning(f"User {username} has no permissions")
         return render_template('login.html',
                              error='Access denied: No permissions assigned',
-                             username=username)
+                             username=username,
+                             saml_enabled=SAML_ENABLED,
+                             ldap_login_enabled=LDAP_LOGIN_ENABLED,
+                             saml_login_url=build_url('/saml/login'))
     
     # Filter roles to only show relevant ones (that grant permissions)
     relevant_roles = [
@@ -651,8 +677,8 @@ def saml_acs():
                     extracted_audiences.append(aud.text)
                 print("=" * 70 + "\n", file=sys.stderr)
             else:
-                logger.warning("âš ï¸  NO AUDIENCE FOUND IN SAML RESPONSE!")
-                print("âš ï¸  NO AUDIENCE FOUND IN SAML RESPONSE!", file=sys.stderr)
+                logger.warning("Ã¢Å¡Â Ã¯Â¸Â  NO AUDIENCE FOUND IN SAML RESPONSE!")
+                print("Ã¢Å¡Â Ã¯Â¸Â  NO AUDIENCE FOUND IN SAML RESPONSE!", file=sys.stderr)
             
             # Also log the Issuer for reference
             issuers = root.findall('.//saml:Issuer', namespaces)
@@ -702,26 +728,26 @@ def saml_acs():
             print(f"  Received: {extracted_audiences[0]}", file=sys.stderr)
             
             if extracted_audiences and expected_entity_id != extracted_audiences[0]:
-                logger.error("  âŒ MISMATCH!")
+                logger.error("  Ã¢ÂÅ’ MISMATCH!")
                 logger.error("")
                 logger.error("TO FIX: Your SSO team needs to configure the IdP with:")
                 logger.error(f"  Entity ID: {expected_entity_id}")
                 logger.error(f"  (Currently using: {extracted_audiences[0]})")
                 
-                print("  âŒ MISMATCH!", file=sys.stderr)
+                print("  Ã¢ÂÅ’ MISMATCH!", file=sys.stderr)
                 print("", file=sys.stderr)
                 print("TO FIX: Your SSO team needs to configure the IdP with:", file=sys.stderr)
                 print(f"  Entity ID: {expected_entity_id}", file=sys.stderr)
                 print(f"  (Currently using: {extracted_audiences[0]})", file=sys.stderr)
             else:
-                logger.error("  âœ“ Match - error is something else")
-                print("  âœ“ Match - error is something else", file=sys.stderr)
+                logger.error("  Ã¢Å“â€œ Match - error is something else")
+                print("  Ã¢Å“â€œ Match - error is something else", file=sys.stderr)
             
             print("=" * 70 + "\n", file=sys.stderr)
         
         logger.error("=" * 70)
     else:
-        logger.info("âœ“ No SAML processing errors")
+        logger.info("Ã¢Å“â€œ No SAML processing errors")
     
     logger.info(f"SAML is_authenticated: {auth.is_authenticated()}")
     
@@ -877,7 +903,7 @@ def saml_info():
         <html>
         <head><title>SAML Not Enabled</title></head>
         <body>
-        <h1>❌ SAML SSO is NOT ENABLED</h1>
+        <h1>âŒ SAML SSO is NOT ENABLED</h1>
         <p>Check your configuration and application logs.</p>
         <p><a href="/saml/debug">/saml/debug</a> for JSON details</p>
         </body>
@@ -922,7 +948,7 @@ def saml_info():
                 <h2 SSO Login Flow</h2>
                 <p><strong>When user clicks "Sign in with SSO", they are redirected to:</strong></p>
                 <p><code id="sso-redirect" style="display: block; margin: 10px 0; padding: 10px; background: white;">{sso_redirect_url}</code>
-                <button class="copy-btn" onclick="copyToClipboard('sso-redirect')">ðŸ"‹ Copy</button>
+                <button class="copy-btn" onclick="copyToClipboard('sso-redirect')">Ã°Å¸"â€¹ Copy</button>
                 </p>
                 <p style="font-size: 13px; color: #666;">
                     <strong>Source:</strong> IdP metadata file (SingleSignOnService Location)<br>
@@ -934,22 +960,22 @@ def saml_info():
                 <h2>Your Service Provider (SP) Details</h2>
                 <p><strong>Entity ID (Audience):</strong><br>
                 <code id="entity-id">{entity_id}</code>
-                <button class="copy-btn" onclick="copyToClipboard('entity-id')">📋 Copy</button>
+                <button class="copy-btn" onclick="copyToClipboard('entity-id')">ðŸ“‹ Copy</button>
                 </p>
                 
                 <p><strong>ACS URL (where IdP sends response):</strong><br>
                 <code id="acs-url">{acs_url}</code>
-                <button class="copy-btn" onclick="copyToClipboard('acs-url')">📋 Copy</button>
+                <button class="copy-btn" onclick="copyToClipboard('acs-url')">ðŸ“‹ Copy</button>
                 </p>
                 
                 <p><strong>SLS URL (single logout):</strong><br>
                 <code id="sls-url">{sls_url}</code>
-                <button class="copy-btn" onclick="copyToClipboard('sls-url')">📋 Copy</button>
+                <button class="copy-btn" onclick="copyToClipboard('sls-url')">ðŸ“‹ Copy</button>
                 </p>
             </div>
             
             <div class="box warning">
-                <h2>⚠️ Important for SSO Team</h2>
+                <h2>âš ï¸ Important for SSO Team</h2>
                 <p>Your IdP <strong>MUST</strong> be configured with:</p>
                 <ul>
                     <li><strong>Entity ID:</strong> <code>{entity_id}</code> (EXACT match, case-sensitive)</li>
@@ -960,27 +986,27 @@ def saml_info():
             </div>
             
             <div class="box">
-                <h2>📥 Download Your SP Metadata</h2>
+                <h2>ðŸ“¥ Download Your SP Metadata</h2>
                 <p>Send this file to your SSO team:</p>
                 <p><a href="/saml/metadata" target="_blank">Download SP Metadata XML</a></p>
-                <p><small>Right-click → Save as → sp-metadata.xml</small></p>
+                <p><small>Right-click â†’ Save as â†’ sp-metadata.xml</small></p>
             </div>
             
             <div class="box">
-                <h2>🔧 Configuration Check</h2>
+                <h2>ðŸ”§ Configuration Check</h2>
                 <p><strong>WEB_PROXY_ALIAS:</strong> {Config.WEB_PROXY_ALIAS if hasattr(Config, 'WEB_PROXY_ALIAS') else 'NOT SET'}</p>
                 <p><strong>APP_BASE_PATH:</strong> {Config.APP_BASE_PATH if hasattr(Config, 'APP_BASE_PATH') else 'NOT SET'}</p>
                 <p><strong>SAML_ACS_PATH:</strong> {Config.SAML_ACS_PATH if hasattr(Config, 'SAML_ACS_PATH') else 'NOT SET'}</p>
             </div>
             
             <div class="box">
-                <h2>🧪 Test SAML Login</h2>
+                <h2>ðŸ§ª Test SAML Login</h2>
                 <p><a href="/saml/login">Click here to test SAML SSO login</a></p>
                 <p><small>This will redirect you to your IdP for authentication</small></p>
             </div>
             
             <div class="box">
-                <h2>📊 Debug Information</h2>
+                <h2>ðŸ“Š Debug Information</h2>
                 <p><a href="/saml/debug">JSON Debug Output</a> - Technical details</p>
                 <p><a href="/debug-proxy">Proxy Configuration</a> - Proxy setup details</p>
             </div>
@@ -1002,7 +1028,7 @@ def saml_info():
         <html>
         <head><title>SAML Configuration Error</title></head>
         <body>
-        <h1>❌ Error Loading SAML Configuration</h1>
+        <h1>âŒ Error Loading SAML Configuration</h1>
         <p>{str(e)}</p>
         <p><a href="/saml/debug">/saml/debug</a> for more details</p>
         </body>
