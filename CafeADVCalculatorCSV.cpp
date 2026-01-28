@@ -4,10 +4,11 @@
 
 #include "CafeADVCalculatorCSV.h"
 #include "CafeADVWorker.h"
+#include "CSVParser.h"
 
 #include <fstream>
-#include <sstream>
 #include <algorithm>
+#include <cmath>
 
 namespace volt::analysis {
 
@@ -89,7 +90,7 @@ bool CafeADVCalculator::loadCSV(const std::string& csvPath) {
         ++lineNum;
         
         // Skip empty lines
-        if (line.empty() || std::all_of(line.begin(), line.end(), ::isspace)) {
+        if (line.empty()) {
             continue;
         }
         
@@ -118,89 +119,77 @@ bool CafeADVCalculator::loadCSV(const std::string& csvPath) {
 }
 
 /******************************************************************************
- * Parse Single CSV Line
+ * Parse Single CSV Line using volt::CSVParser
  * 
  * Format: ric,scope,date,daily_volume,opening_volume,closing_volume,avg_trade_size,avg_continuous_trade_size,special_day_multiplier
+ * Index:   0    1     2        3              4              5             6                    7                       8
  *****************************************************************************/
 std::optional<std::pair<CafeADVCalculator::CacheKey, CafeADVCalculator::CachedADVEntry>> 
 CafeADVCalculator::parseCSVLine(const std::string& line) {
-    std::istringstream ss(line);
-    std::string token;
+    volt::CSVParser parser;
+    parser.parse(line);
     
-    try {
-        CacheKey key;
-        CachedADVEntry entry;
-        
-        // 1. RIC
-        if (!std::getline(ss, token, ',')) return std::nullopt;
-        key.ric = token;
-        
-        // 2. Scope (PRIMARY or CONS)
-        if (!std::getline(ss, token, ',')) return std::nullopt;
-        if (token == "PRIMARY" || token == "PRIM") {
-            key.scope = ADVScope::PRIMARY;
-        } else if (token == "CONS" || token == "CONSOLIDATED") {
-            key.scope = ADVScope::CONS;
-        } else {
-            return std::nullopt;  // Unknown scope
-        }
-        
-        // 3. Date (YYYY-MM-DD or YYYY.MM.DD)
-        if (!std::getline(ss, token, ',')) return std::nullopt;
-        // Replace dots with dashes if needed
-        std::replace(token.begin(), token.end(), '.', '-');
-        entry.date = Date::parse(token);
-        if (entry.date.isNull()) {
-            return std::nullopt;
-        }
-        
-        // 4. Daily Volume
-        if (!std::getline(ss, token, ',')) return std::nullopt;
-        double dailyVolume = token.empty() ? NAN : std::stod(token);
-        
-        // 5. Opening Volume
-        if (!std::getline(ss, token, ',')) return std::nullopt;
-        double openingVolume = token.empty() ? NAN : std::stod(token);
-        
-        // 6. Closing Volume
-        if (!std::getline(ss, token, ',')) return std::nullopt;
-        double closingVolume = token.empty() ? NAN : std::stod(token);
-        
-        // 7. Average Trade Size
-        if (!std::getline(ss, token, ',')) return std::nullopt;
-        double avgTradeSize = token.empty() ? NAN : std::stod(token);
-        
-        // 8. Average Continuous Trade Size
-        if (!std::getline(ss, token, ',')) return std::nullopt;
-        double avgContinuousTradeSize = token.empty() ? NAN : std::stod(token);
-        
-        // 9. Special Day Multiplier (optional)
-        std::optional<double> specialDayMultiplier;
-        if (std::getline(ss, token, ',') && !token.empty()) {
-            double mult = std::stod(token);
-            if (mult > 0.0) {
-                specialDayMultiplier = mult;
-            }
-        }
-        
-        // Build ADVData
-        entry.data = ADVData(
-            dailyVolume: dailyVolume,
-            openingVolume: openingVolume,
-            closingVolume: closingVolume,
-            intradayAuctionVolume: ADVData::IntradayAuctionVolumeContainer(),
-            avgTradeSize: avgTradeSize,
-            avgContinuousTradeSize: avgContinuousTradeSize
-        );
-        
-        entry.specialDayMultiplier = specialDayMultiplier;
-        
-        return std::make_pair(std::move(key), std::move(entry));
-        
-    } catch (const std::exception& e) {
-        // Parsing error (stod, etc.)
+    // Need at least 8 columns (special_day_multiplier is optional)
+    if (parser.getCount() < 8) {
         return std::nullopt;
     }
+    
+    CacheKey key;
+    CachedADVEntry entry;
+    
+    // 0: RIC
+    key.ric = parser[0];
+    if (key.ric.empty()) {
+        return std::nullopt;
+    }
+    
+    // 1: Scope (PRIMARY or CONS)
+    std::string scopeStr = parser[1];
+    if (scopeStr == "PRIMARY" || scopeStr == "PRIM") {
+        key.scope = ADVScope::PRIMARY;
+    } else if (scopeStr == "CONS" || scopeStr == "CONSOLIDATED") {
+        key.scope = ADVScope::CONS;
+    } else {
+        return std::nullopt;
+    }
+    
+    // 2: Date (YYYY-MM-DD or YYYY.MM.DD)
+    std::string dateStr = parser[2];
+    std::replace(dateStr.begin(), dateStr.end(), '.', '-');
+    entry.date = Date::parse(dateStr);
+    if (entry.date.isNull()) {
+        return std::nullopt;
+    }
+    
+    // 3-7: Volumes (readDouble returns NAN on failure - exactly what we want)
+    double dailyVolume = parser.readDouble(3);
+    double openingVolume = parser.readDouble(4);
+    double closingVolume = parser.readDouble(5);
+    double avgTradeSize = parser.readDouble(6);
+    double avgContinuousTradeSize = parser.readDouble(7);
+    
+    // 8: Special day multiplier (optional)
+    std::optional<double> specialDayMultiplier;
+    if (parser.getCount() > 8) {
+        double mult = parser.readDouble(8);
+        if (!std::isnan(mult) && mult > 0.0) {
+            specialDayMultiplier = mult;
+        }
+    }
+    
+    // Build ADVData
+    entry.data = ADVData(
+        dailyVolume: dailyVolume,
+        openingVolume: openingVolume,
+        closingVolume: closingVolume,
+        intradayAuctionVolume: ADVData::IntradayAuctionVolumeContainer(),
+        avgTradeSize: avgTradeSize,
+        avgContinuousTradeSize: avgContinuousTradeSize
+    );
+    
+    entry.specialDayMultiplier = specialDayMultiplier;
+    
+    return std::make_pair(std::move(key), std::move(entry));
 }
 
 /******************************************************************************

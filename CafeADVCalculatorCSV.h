@@ -21,7 +21,7 @@
  *   AAPL.O,PRIMARY,2025-01-24,1000000.0,50000.0,75000.0,150.5,145.2,1.0
  * 
  * IMPORTANT: Requires modified CafeADVWorker with additional constructor.
- *            See CafeADVWorker_changes.h for required modifications.
+ *            See CafeADVWorker_changes.cpp for required modifications.
  * 
  *****************************************************************************/
 
@@ -35,6 +35,7 @@
 #include "TimeManager.h"
 #include "AsyncDbPool.h"
 #include "FLog.h"
+#include "CSVParser.h"
 
 #include <string>
 #include <unordered_map>
@@ -102,7 +103,7 @@ private:
     bool loadCSV(const std::string& csvPath);
     
     /**************************************************************************
-     * Parse a single CSV line
+     * Parse a single CSV line using volt::CSVParser
      **************************************************************************/
     std::optional<std::pair<CacheKey, CachedADVEntry>> parseCSVLine(const std::string& line);
 
