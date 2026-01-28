@@ -13,7 +13,7 @@
 namespace volt::analysis {
 
 /******************************************************************************
- * CSV Mode Constructor
+ * Constructor
  *****************************************************************************/
 CafeADVCalculator::CafeADVCalculator(
     const std::string& csvPath,
@@ -26,46 +26,25 @@ CafeADVCalculator::CafeADVCalculator(
     , _staticDataSource(staticDataSource)
     , _timeManager(timeManager)
     , _asyncDbPool(asyncDbPool)
-    , _flog(FLog(parent: flog, tag: StringStr() << "CafeADVCalc_CSV/"))
-    , _csvMode(true)
+    , _flog(FLog(parent: flog, tag: StringStr() << "CafeADVCalc/"))
 {
-    FLOG_INFORMATION(_flog, StringStr() << "Initializing CafeADVCalculator in CSV mode from: " << csvPath);
-    
-    if (!loadCSV(csvPath)) {
-        FLOG_URGENT_ERROR(_flog, StringStr() << "Failed to load CSV file: " << csvPath 
-            << " - all requests will fall back to DB");
+    if (!csvPath.empty()) {
+        FLOG_INFORMATION(_flog, StringStr() << "Loading CSV cache from: " << csvPath);
+        
+        if (loadCSV(csvPath)) {
+            FLOG_INFORMATION(_flog, StringStr() 
+                << "CSV cache loaded: " << _csvCache.size() << " entries, date: " << _csvDate);
+        } else {
+            FLOG_URGENT_ERROR(_flog, StringStr() 
+                << "Failed to load CSV file: " << csvPath << " - will use DB for all requests");
+        }
+    } else {
+        FLOG_INFORMATION(_flog, StringStr() << "No CSV path provided, all requests will use DB");
     }
-    
-    FLOG_INFORMATION(_flog, StringStr() 
-        << "CafeADVCalculator initialized: " << _csvCache.size() << " entries loaded"
-        << ", date: " << _csvDate);
-}
-
-/******************************************************************************
- * Original DB Mode Constructor
- *****************************************************************************/
-CafeADVCalculator::CafeADVCalculator(
-    MessageDeliveryService* mds,
-    staticdata::InstrumentStaticSource* staticDataSource,
-    TimeManager* timeManager,
-    std::shared_ptr<db::AsyncDbPool> asyncDbPool,
-    FLog flog)
-    : _mds(mds)
-    , _staticDataSource(staticDataSource)
-    , _timeManager(timeManager)
-    , _asyncDbPool(asyncDbPool)
-    , _flog(FLog(parent: flog, tag: StringStr() << "CafeADVCalc_DB/"))
-    , _csvMode(false)
-{
-    FLOG_INFORMATION(_flog, StringStr() << "Initializing CafeADVCalculator in DB mode");
 }
 
 /******************************************************************************
  * Load CSV File
- * 
- * Expected format (header + data rows):
- * ric,scope,date,daily_volume,opening_volume,closing_volume,avg_trade_size,avg_continuous_trade_size,special_day_multiplier
- * AAPL.O,PRIMARY,2025-01-24,1000000.0,50000.0,75000.0,150.5,145.2,1.0
  *****************************************************************************/
 bool CafeADVCalculator::loadCSV(const std::string& csvPath) {
     std::ifstream file(csvPath);
@@ -89,7 +68,6 @@ bool CafeADVCalculator::loadCSV(const std::string& csvPath) {
     while (std::getline(file, line)) {
         ++lineNum;
         
-        // Skip empty lines
         if (line.empty()) {
             continue;
         }
@@ -103,7 +81,6 @@ bool CafeADVCalculator::loadCSV(const std::string& csvPath) {
         
         auto& [key, entry] = *result;
         
-        // Store date from first entry
         if (loaded == 0) {
             _csvDate = entry.date;
         }
@@ -113,23 +90,19 @@ bool CafeADVCalculator::loadCSV(const std::string& csvPath) {
     }
     
     FLOG_INFORMATION(_flog, StringStr() 
-        << "CSV loading complete: " << loaded << " entries, " << errors << " errors");
+        << "CSV parsing complete: " << loaded << " entries, " << errors << " errors");
     
     return loaded > 0;
 }
 
 /******************************************************************************
- * Parse Single CSV Line using volt::CSVParser
- * 
- * Format: ric,scope,date,daily_volume,opening_volume,closing_volume,avg_trade_size,avg_continuous_trade_size,special_day_multiplier
- * Index:   0    1     2        3              4              5             6                    7                       8
+ * Parse Single CSV Line
  *****************************************************************************/
-std::optional<std::pair<CafeADVCalculator::CacheKey, CafeADVCalculator::CachedADVEntry>> 
+std::optional<std::pair<CafeADVCalculator::CacheKey, CachedADVEntry>> 
 CafeADVCalculator::parseCSVLine(const std::string& line) {
     volt::CSVParser parser;
     parser.parse(line);
     
-    // Need at least 8 columns (special_day_multiplier is optional)
     if (parser.getCount() < 8) {
         return std::nullopt;
     }
@@ -143,7 +116,7 @@ CafeADVCalculator::parseCSVLine(const std::string& line) {
         return std::nullopt;
     }
     
-    // 1: Scope (PRIMARY or CONS)
+    // 1: Scope
     std::string scopeStr = parser[1];
     if (scopeStr == "PRIMARY" || scopeStr == "PRIM") {
         key.scope = ADVScope::PRIMARY;
@@ -153,7 +126,7 @@ CafeADVCalculator::parseCSVLine(const std::string& line) {
         return std::nullopt;
     }
     
-    // 2: Date (YYYY-MM-DD or YYYY.MM.DD)
+    // 2: Date
     std::string dateStr = parser[2];
     std::replace(dateStr.begin(), dateStr.end(), '.', '-');
     entry.date = Date::parse(dateStr);
@@ -161,7 +134,7 @@ CafeADVCalculator::parseCSVLine(const std::string& line) {
         return std::nullopt;
     }
     
-    // 3-7: Volumes (readDouble returns NAN on failure - exactly what we want)
+    // 3-7: Volumes
     double dailyVolume = parser.readDouble(3);
     double openingVolume = parser.readDouble(4);
     double closingVolume = parser.readDouble(5);
@@ -177,7 +150,6 @@ CafeADVCalculator::parseCSVLine(const std::string& line) {
         }
     }
     
-    // Build ADVData
     entry.data = ADVData(
         dailyVolume: dailyVolume,
         openingVolume: openingVolume,
@@ -194,56 +166,39 @@ CafeADVCalculator::parseCSVLine(const std::string& line) {
 
 /******************************************************************************
  * Create ADV Worker
+ * 
+ * Always checks cache, passes optional to single constructor.
  *****************************************************************************/
 void CafeADVCalculator::create(const ADVSpecification& specification, ADVDynamicModel& value) {
     
-    if (_csvMode) {
-        // Try CSV cache first
-        auto ricOpt = specification._instrument.get(type: volt::SymbolType::RIC);
-        
-        if (ricOpt) {
-            CacheKey key{*ricOpt, specification._scope};
-            auto it = _csvCache.find(key);
-            
-            if (it != _csvCache.end()) {
-                // Cache hit - use CafeADVWorker with initial data
-                const CachedADVEntry& entry = it->second;
-                
-                FLOG_DEBUG(_flog, StringStr() 
-                    << "Cache hit: " << *ricOpt 
-                    << " scope=" << (specification._scope == ADVScope::PRIMARY ? "PRIMARY" : "CONS"));
-                
-                // Use the new constructor with pre-loaded data
-                value = new CafeADVWorker(
-                    specification,
-                    _mds,
-                    _staticDataSource,
-                    _timeManager,
-                    _asyncDbPool,
-                    _flog,
-                    entry.data,                     // Pre-loaded ADV data
-                    entry.date,                     // Date from CSV
-                    entry.specialDayMultiplier);    // Special day multiplier
-                return;
-            }
-            
-            // Cache miss - log and fall through to DB
+    // Try to find in cache
+    std::optional<CachedADVEntry> cachedData;
+    
+    auto ricOpt = specification._instrument.get(type: volt::SymbolType::RIC);
+    if (ricOpt) {
+        CacheKey key{*ricOpt, specification._scope};
+        auto it = _csvCache.find(key);
+        if (it != _csvCache.end()) {
+            cachedData = it->second;
             FLOG_DEBUG(_flog, StringStr() 
-                << "Cache miss, falling back to DB: " << *ricOpt 
+                << "Cache hit: " << *ricOpt 
+                << " scope=" << (specification._scope == ADVScope::PRIMARY ? "PRIMARY" : "CONS"));
+        } else {
+            FLOG_DEBUG(_flog, StringStr() 
+                << "Cache miss: " << *ricOpt 
                 << " scope=" << (specification._scope == ADVScope::PRIMARY ? "PRIMARY" : "CONS"));
         }
-        
-        // Fall through to DB query
     }
     
-    // DB query (original constructor)
+    // Single constructor - pass optional cached data
     value = new CafeADVWorker(
         specification,
         _mds,
         _staticDataSource,
         _timeManager,
         _asyncDbPool,
-        _flog);
+        _flog,
+        cachedData);
 }
 
 } // namespace volt::analysis
